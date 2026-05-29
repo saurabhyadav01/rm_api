@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { ensureStoreOtpTable } from "../db/ensure-store-otp-table";
 import { useStoresTable } from "../config/schema";
 import { isSmsConfigured, sendStoreOtpSms, SmsSendError } from "./sms.service";
 import { type RowDataPacket } from "mysql2/promise";
@@ -115,6 +116,8 @@ export async function storeSendOtpService(input: StoreSendOtpInput): Promise<Ser
   const { digits: ccodeDigits, withPlus: actualCcode } = normalizeCcode(input.ccode);
 
   try {
+    await ensureStoreOtpTable();
+
     const exists = await mobileExistsInOnboardedStores(mobile);
     if (exists) {
       return {

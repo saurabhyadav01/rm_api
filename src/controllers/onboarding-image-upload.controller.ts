@@ -1,17 +1,25 @@
 import { type Request, type Response } from "express";
 import multer from "multer";
 import path from "path";
+import { getOnboardingImageMaxBytes } from "../config/upload-limits";
 import { getPublicFileUrl } from "../config/uploads";
 import { saveUploadedFile } from "../utils/upload-image";
 
+const maxUploadBytes = getOnboardingImageMaxBytes();
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: {
+    fileSize: maxUploadBytes,
+    fieldSize: maxUploadBytes,
+    files: 1,
+    fields: 20,
+  },
 });
 
 const uploadBaseDir = "uploads/stores/";
 const allowedTypes = ["jpg", "jpeg", "png", "pdf", "doc", "docx", "gif", "webp"];
-const maxSize = 10 * 1024 * 1024;
+const maxSize = maxUploadBytes;
 
 const folderMapping: Record<string, string> = {
   bank_proof_doc: `${uploadBaseDir}bank/`,

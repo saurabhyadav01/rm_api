@@ -43,8 +43,10 @@ All paths below are relative to `/api/v1`. Import Postman collection: `postman/H
 
 **Stores:** `GET|POST /stores/list`, `POST /stores/search`, `POST /stores/send-otp`, `POST /stores/verify-otp`, `POST /stores/onboard`, `POST /stores/update`
 
+Store OTP uses table `tbl_store_otp_verify` (auto-created on first send-otp if missing). Manual SQL: `sql/tbl_store_otp_verify.sql`.
+
 **Products:** `POST /products/search`, `POST /products/loose/search`, `POST /products/list-with-attributes`, `POST /products/add-with-attributes`, `POST /products/add-not-listed-with-attributes`, `POST /products/update-with-attributes`, `POST /products/soft-delete`
 
 **Non-onboarded:** `POST /non_onboarded_store`, `POST /non_onboarded_store/list`, `POST /non_onboarded_store/search`
 
-**Other:** `POST /rm_checkout`, `POST /onboarding-image-upload` (multipart), `GET /health`, `GET /` (route index)
+**Other:** `POST /rm_checkout`, `POST /onboarding-image-upload` (multipart, max **10 MB** per file — `ONBOARDING_IMAGE_MAX_MB`), `GET /health`, `GET /` (route index)

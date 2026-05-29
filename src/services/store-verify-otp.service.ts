@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { ensureStoreOtpTable } from "../db/ensure-store-otp-table";
 import { signStoreOtpToken } from "./jwt.service";
 import { type RowDataPacket } from "mysql2/promise";
 
@@ -98,6 +99,8 @@ export async function storeVerifyOtpService(input: StoreVerifyOtpInput): Promise
   }
 
   try {
+    await ensureStoreOtpTable();
+
     const otpRow = await getOtpRow(mobile);
     if (!otpRow) {
       return fail("404", "OTP not found! Please request a new OTP.");
