@@ -321,17 +321,30 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
   return stats;
 }
 
-function mapStoreRow(row: StoreRow, ps: ProductStats | null) {
+/** Match legacy PHP store list JSON shapes (counts as strings, plan fields as strings). */
+function phpEmptyStr(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
+
+function phpNullableField(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const t = String(v).trim();
+  return t === "" ? null : String(v);
+}
+
+function formatPhpStoreListItem(row: StoreRow, ps: ProductStats | null) {
   const variantTotal = ps?.attribute_total ?? 0;
   const pendingTotal = ps?.pending_count ?? 0;
   const approvedTotal = Math.max(0, variantTotal - pendingTotal);
-  const nosId = row.non_onboarded_store_id ? s(row.non_onboarded_store_id) : null;
+  const nosIdRaw = row.non_onboarded_store_id ? s(row.non_onboarded_store_id) : "";
+  const nosId = nosIdRaw || null;
 
   return {
     id: row.id,
-    business_name: row.business_name,
+    business_name: row.business_name ?? "",
     email: row.email,
-    mobile: row.mobile,
+    mobile: row.mobile ?? "",
     full_address: row.full_address,
     pincode: row.pincode,
     business_type: String(row.business_type ?? "").replaceAll(",", ", "),
@@ -362,10 +375,10 @@ function mapStoreRow(row: StoreRow, ps: ProductStats | null) {
     ra_id: row.ra_id,
     fr_id: row.fr_id,
     plan_id: row.plan_id,
-    plan_opt: row.plan_title ?? "",
-    plan_price: row.plan_price ?? "",
-    plan_product_limit: row.plan_product_limit ?? "",
-    plan_description: row.plan_description ?? "",
+    plan_opt: phpEmptyStr(row.plan_title),
+    plan_price: phpEmptyStr(row.plan_price),
+    plan_product_limit: phpEmptyStr(row.plan_product_limit),
+    plan_description: phpEmptyStr(row.plan_description),
     total: String(variantTotal),
     product_count: String(variantTotal),
     pending_count: String(pendingTotal),
@@ -380,15 +393,63 @@ function mapStoreRow(row: StoreRow, ps: ProductStats | null) {
     base_charge: row.base_charge,
     extra_charge: row.extra_charge,
     remark: row.remark,
-    owner_name: row.owner_name ?? "N/A",
+    owner_name: row.owner_name && s(row.owner_name) ? row.owner_name : "N/A",
     refercode: row.refercode,
-    break_start_time: row.break_start_time ?? null,
-    break_end_time: row.break_end_time ?? null,
-    aadhar_back: row.aadhar_back ?? null,
+    break_start_time: phpNullableField(row.break_start_time),
+    break_end_time: phpNullableField(row.break_end_time),
+    aadhar_back: phpNullableField(row.aadhar_back),
     store_type: nosId ? "non_onboard_store" : "onboard_store",
     non_onboarded_store_id: nosId,
-    non_onboarded_date: row.non_onboarded_date ?? null,
-    trnaseferdate: row.created_at ?? null,
+    non_onboarded_date: phpNullableField(row.non_onboarded_date),
+    trnaseferdate: phpNullableField(row.created_at),
+  };
+}
+
+function buildStoresListSuccessBody(params: {
+  stores: ReturnType<typeof formatPhpStoreListItem>[];
+  totalRecords: number;
+  totalPages: number;
+  page: number;
+  limit: number;
+  counts: Record<string, string>;
+}) {
+  const { stores, totalRecords, totalPages, page, limit, counts } = params;
+
+  let pageVariantTotal = 0;
+  let pagePendingTotal = 0;
+  let pageApprovedTotal = 0;
+  for (const store of stores) {
+    pageVariantTotal += Number(store.total ?? 0);
+    pagePendingTotal += Number(store.pending_count ?? 0);
+    pageApprovedTotal += Number(store.approved_count ?? 0);
+  }
+
+  counts.total = String(pageVariantTotal);
+  counts.product_count = String(pageVariantTotal);
+  counts.pending_count = String(pagePendingTotal);
+  counts.approved_count = String(pageApprovedTotal);
+
+  return {
+    success: true,
+    ResponseCode: "200",
+    Result: "true",
+    ResponseMsg:
+      stores.length > 0
+        ? "Store onboarding history retrieved successfully"
+        : "No stores found for this RM ID",
+    pagination: {
+      total_records: totalRecords,
+      total_pages: totalPages,
+      current_page: page,
+      limit,
+    },
+    counts,
+    total: String(pageVariantTotal),
+    product_count: String(pageVariantTotal),
+    pending_count: String(pagePendingTotal),
+    approved_count: String(pageApprovedTotal),
+    total_stores: stores.length,
+    stores,
   };
 }
 
@@ -485,8 +546,14 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
         sa.postal_code AS pincode,
         s.location_code AS business_type,
         s.category_ids,
-        soh.opening_time AS opentime,
-        soh.closing_time AS closetime,
+        (
+          SELECT oh.opening_time FROM store_operating_hours oh
+          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
+        ) AS opentime,
+        (
+          SELECT oh.closing_time FROM store_operating_hours oh
+          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
+        ) AS closetime,
         sa.landmark,
         CAST(sa.latitude AS CHAR) AS latitude,
         CAST(sa.longitude AS CHAR) AS longitude,
@@ -500,44 +567,54 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
         spm.account_holder_name,
         spm.account_number,
         spm.upi_id AS transaction_id,
-        s.status,
-        s.status AS rstatus,
+        CAST(s.status AS CHAR) AS status,
+        CAST(s.status AS CHAR) AS rstatus,
         s.rating AS rate,
-        NULL AS commission,
+        sps.platform_commission_rate AS commission,
         s.logo_url AS store_banner,
         s.banner_url AS cover_image_url,
         s.regional_manager_id AS rm_id,
         s.regional_aggregator_id AS ra_id,
         s.franchisee_id AS fr_id,
         s.subscription_plan_id AS plan_id,
-        NULL AS plan_title,
-        NULL AS plan_price,
-        NULL AS plan_product_limit,
-        NULL AS plan_description,
+        p.plan_title,
+        p.price AS plan_price,
+        p.product_limit AS plan_product_limit,
+        p.description AS plan_description,
         s.tagline AS slogan,
         NULL AS slogan_title,
         s.short_description AS tags,
         s.description,
-        s.cancellation_policy AS cancle_policy,
-        NULL AS base_distance,
-        NULL AS base_charge,
-        NULL AS extra_charge,
+        sps.cancellation_policy AS cancle_policy,
+        sds.delivery_radius_km AS base_distance,
+        sps.base_price AS base_charge,
+        sps.additional_price AS extra_charge,
         NULL AS remark,
         s.owner_name,
-        soh.break_start_time,
-        soh.break_end_time,
+        (
+          SELECT oh.break_start_time FROM store_operating_hours oh
+          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
+        ) AS break_start_time,
+        (
+          SELECT oh.break_end_time FROM store_operating_hours oh
+          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
+        ) AS break_end_time,
         NULL AS aadhar_back,
         s.referral_code AS refercode,
-        s.store_code AS non_onboarded_store_id,
+        NULL AS non_onboarded_store_id,
         NULL AS non_onboarded_date,
         s.created_at AS created_at
       FROM stores s
       LEFT JOIN store_credentials sc ON sc.store_id = s.id
       LEFT JOIN store_addresses sa ON sa.store_id = s.id AND sa.is_default = 1
         AND (sa.is_deleted = 0 OR sa.is_deleted IS NULL)
-      LEFT JOIN store_operating_hours soh ON soh.store_id = s.id
       LEFT JOIN store_payment_methods spm ON spm.store_id = s.id AND spm.is_primary = 1
         AND (spm.is_deleted = 0 OR spm.is_deleted IS NULL)
+      LEFT JOIN subscription_store_plan p ON s.subscription_plan_id = p.id
+      LEFT JOIN store_pricing_settings sps ON sps.store_id = s.id
+        AND (sps.is_deleted = 0 OR sps.is_deleted IS NULL)
+      LEFT JOIN store_delivery_settings sds ON sds.store_id = s.id
+        AND (sds.is_deleted = 0 OR sds.is_deleted IS NULL)
       WHERE ${whereClause}
       ORDER BY s.id DESC
       LIMIT :limit OFFSET :offset
@@ -551,46 +628,20 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
     }
 
     const productStats = includeProductCounts ? await fetchProductStatsV2(storeIds) : {};
-    const stores = (rows ?? []).map((row) => {
-      const mapped = mapStoreRow(row, productStats[Number(row.id)] ?? null);
-      mapped.store_type = "onboard_store";
-      mapped.non_onboarded_store_id = null;
-      return mapped;
-    });
-
-    let pageVariantTotal = 0;
-    let pagePendingTotal = 0;
-    let pageApprovedTotal = 0;
-    for (const store of stores) {
-      pageVariantTotal += Number(store.total ?? 0);
-      pagePendingTotal += Number(store.pending_count ?? 0);
-      pageApprovedTotal += Number(store.approved_count ?? 0);
-    }
-
-    counts.total = String(pageVariantTotal);
-    counts.product_count = String(pageVariantTotal);
-    counts.pending_count = String(pagePendingTotal);
-    counts.approved_count = String(pageApprovedTotal);
+    const stores = (rows ?? []).map((row) =>
+      formatPhpStoreListItem(row, includeProductCounts ? productStats[Number(row.id)] ?? null : null),
+    );
 
     return {
       httpStatus: 200,
-      body: {
-        success: true,
-        ResponseCode: "200",
-        Result: "true",
-        ResponseMsg:
-          stores.length > 0
-            ? "Store onboarding history retrieved successfully"
-            : "No stores found for this RM ID",
-        pagination: { total_records: totalRecords, total_pages: totalPages, current_page: page, limit },
-        counts,
-        total: String(pageVariantTotal),
-        product_count: String(pageVariantTotal),
-        pending_count: String(pagePendingTotal),
-        approved_count: String(pageApprovedTotal),
-        total_stores: stores.length,
+      body: buildStoresListSuccessBody({
         stores,
-      },
+        totalRecords,
+        totalPages,
+        page,
+        limit,
+        counts,
+      }),
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -778,48 +829,20 @@ export async function storesListService(input: StoresListInput): Promise<Service
         : await fetchProductStatsLegacy(storeIds)
       : {};
 
-    const stores = (rows ?? []).map((row) => mapStoreRow(row, productStats[Number(row.id)] ?? null));
-
-    let pageVariantTotal = 0;
-    let pagePendingTotal = 0;
-    let pageApprovedTotal = 0;
-    for (const store of stores) {
-      pageVariantTotal += Number(store.total ?? 0);
-      pagePendingTotal += Number(store.pending_count ?? 0);
-      pageApprovedTotal += Number(store.approved_count ?? 0);
-    }
-
-    counts.total = String(pageVariantTotal);
-    counts.product_count = String(pageVariantTotal);
-    counts.pending_count = String(pagePendingTotal);
-    counts.approved_count = String(pageApprovedTotal);
-
-    const responseMsg =
-      stores.length > 0
-        ? "Store onboarding history retrieved successfully"
-        : "No stores found for this RM ID";
+    const stores = (rows ?? []).map((row) =>
+      formatPhpStoreListItem(row, includeProductCounts ? productStats[Number(row.id)] ?? null : null),
+    );
 
     return {
       httpStatus: 200,
-      body: {
-        success: true,
-        ResponseCode: "200",
-        Result: "true",
-        ResponseMsg: responseMsg,
-        pagination: {
-          total_records: totalRecords,
-          total_pages: totalPages,
-          current_page: page,
-          limit,
-        },
-        counts,
-        total: String(pageVariantTotal),
-        product_count: String(pageVariantTotal),
-        pending_count: String(pagePendingTotal),
-        approved_count: String(pageApprovedTotal),
-        total_stores: stores.length,
+      body: buildStoresListSuccessBody({
         stores,
-      },
+        totalRecords,
+        totalPages,
+        page,
+        limit,
+        counts,
+      }),
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -50,3 +50,22 @@ Store OTP uses table `tbl_store_otp_verify` (auto-created on first send-otp if m
 **Non-onboarded:** `POST /non_onboarded_store`, `POST /non_onboarded_store/list`, `POST /non_onboarded_store/search`
 
 **Other:** `POST /rm_checkout`, `POST /onboarding-image-upload` (multipart, max **10 MB** per file — `ONBOARDING_IMAGE_MAX_MB`), `GET /health`, `GET /` (route index)
+
+### Fix nginx `413 Request Entity Too Large` on image upload
+
+The HTML 413 page from **nginx** means the request never reaches Node. On the server, inside the `server { }` block for `rmapi.hellochotu.com`:
+
+```nginx
+client_max_body_size 10M;
+```
+
+Example full site config: `deploy/nginx-rmapi.conf.example`
+
+```bash
+sudo nano /etc/nginx/sites-available/rmapi.hellochotu.com   # or sites-enabled/*
+# add client_max_body_size 10M; inside server { }
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+If a global limit exists in `/etc/nginx/nginx.conf` under `http { }`, you can set it there instead.
