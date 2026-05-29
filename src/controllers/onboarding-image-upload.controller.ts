@@ -1,6 +1,7 @@
 import { type Request, type Response } from "express";
 import multer from "multer";
 import path from "path";
+import { getPublicFileUrl } from "../config/uploads";
 import { saveUploadedFile } from "../utils/upload-image";
 
 const upload = multer({
@@ -27,12 +28,6 @@ const folderMapping: Record<string, string> = {
   loose_product: `${uploadBaseDir}loose_product/`,
   non_onboardstore: `${uploadBaseDir}non_onboarded_store/`,
 };
-
-function baseUrl(req: Request) {
-  const proto = req.protocol;
-  const host = req.get("host") ?? "";
-  return `${proto}://${host}/`;
-}
 
 export const onboardingImageUploadMiddleware = upload.single("image");
 
@@ -130,9 +125,8 @@ export async function onboardingImageUpload(req: Request, res: Response) {
     });
   }
 
-  const baseUrlClean = baseUrl(req).replace(/\/+$/, "");
   const filePathClean = String(uploadResult.file_path).replace(/^\/+/, "");
-  let imageUrl = `${baseUrlClean}/${filePathClean}`;
+  let imageUrl = getPublicFileUrl(filePathClean);
 
   // Add timestamp to attribute_image URLs to prevent caching
   if (isAttributeImage) {

@@ -1,7 +1,5 @@
+import "../config/load-env";
 import mysql from "mysql2/promise";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 function requiredEnv(name: string): string {
   const v = process.env[name];

@@ -1,20 +1,22 @@
 import cors from "cors";
-import dotenv from "dotenv";
 import express, { type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import morgan from "morgan";
+import { getImagesRootDir, getUploadsRootDir } from "./config/uploads";
 import { getApiVersionPath } from "./config/version";
 import { parseCorsOrigins } from "./config/public-url";
 import { router } from "./routes";
-
-dotenv.config();
 
 export function createApp() {
   const app = express();
 
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+    }),
+  );
   app.use(
     cors({
       origin: parseCorsOrigins(),
@@ -32,9 +34,37 @@ export function createApp() {
   );
   app.use(morgan("dev"));
 
+  // Serve uploaded onboarding / store files (GET /uploads/stores/...)
+  app.use(
+    "/uploads",
+    express.static(getUploadsRootDir(), {
+      index: false,
+      fallthrough: false,
+      maxAge: "7d",
+    }),
+  );
+  // Legacy product images written by add-product endpoints (GET /images/product/...)
+  app.use(
+    "/images",
+    express.static(getImagesRootDir(), {
+      index: false,
+      fallthrough: false,
+      maxAge: "7d",
+    }),
+  );
+
   const versionPath = getApiVersionPath();
   app.get("/", (_req, res) => res.redirect(`/api${versionPath}/health`));
   app.use(`/api${versionPath}`, router);
+  // When reverse proxy only forwards /api — same files at /api/v1/uploads/...
+  app.use(
+    `/api${versionPath}/uploads`,
+    express.static(getUploadsRootDir(), { index: false, fallthrough: false, maxAge: "7d" }),
+  );
+  app.use(
+    `/api${versionPath}/images`,
+    express.static(getImagesRootDir(), { index: false, fallthrough: false, maxAge: "7d" }),
+  );
   // Backward-compatible unversioned mount (existing clients / production health URL)
   if (versionPath) {
     app.use("/api", router);

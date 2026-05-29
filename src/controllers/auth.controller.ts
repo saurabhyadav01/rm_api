@@ -18,6 +18,10 @@ function send(res: Response, statusCode: number, body: { success: boolean; statu
   return res.status(statusCode).json(body);
 }
 
+function isJwtConfigError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("JWT_SECRET");
+}
+
 async function buildRmLoginData(rm: any) {
   const raId = await findRaIdByFranchiseeId(rm.franchisee_id ?? null);
   const token = signRmToken(rm);
@@ -166,13 +170,27 @@ export async function loginWithOtp(req: Request, res: Response) {
       data: null,
     });
 
-  const data = await buildRmLoginData(rm);
-  return send(res, 200, {
-    success: true,
-    status_code: 200,
-    message: "Login successful",
-    data,
-  });
+  try {
+    const data = await buildRmLoginData(rm);
+    return send(res, 200, {
+      success: true,
+      status_code: 200,
+      message: "Login successful",
+      data,
+    });
+  } catch (err) {
+    if (isJwtConfigError(err)) {
+      // eslint-disable-next-line no-console
+      console.error("[rm] login failed: JWT_SECRET not configured");
+      return send(res, 503, {
+        success: false,
+        status_code: 503,
+        message: "Server misconfiguration: JWT_SECRET is not set. Contact support.",
+        data: null,
+      });
+    }
+    throw err;
+  }
 }
 
 const loginPasswordSchema = z.object({
@@ -219,12 +237,26 @@ export async function loginWithPassword(req: Request, res: Response) {
     });
   }
 
-  const data = await buildRmLoginData(rm);
-  return send(res, 200, {
-    success: true,
-    status_code: 200,
-    message: "Login successful",
-    data,
-  });
+  try {
+    const data = await buildRmLoginData(rm);
+    return send(res, 200, {
+      success: true,
+      status_code: 200,
+      message: "Login successful",
+      data,
+    });
+  } catch (err) {
+    if (isJwtConfigError(err)) {
+      // eslint-disable-next-line no-console
+      console.error("[rm] login failed: JWT_SECRET not configured");
+      return send(res, 503, {
+        success: false,
+        status_code: 503,
+        message: "Server misconfiguration: JWT_SECRET is not set. Contact support.",
+        data: null,
+      });
+    }
+    throw err;
+  }
 }
 

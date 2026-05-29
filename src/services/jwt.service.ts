@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { getRmJwtSecret } from "../config/load-env";
 import { type RelationshipManager } from "../models/relationship-manager.model";
 
 export type AuthTokenPayload = {
@@ -15,8 +16,7 @@ export type AuthTokenPayload = {
 };
 
 export function signRmToken(rm: RelationshipManager): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error("Missing env JWT_SECRET");
+  const secret = getRmJwtSecret();
 
   const payload: AuthTokenPayload = {
     sub: String(rm.id),

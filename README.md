@@ -43,7 +43,7 @@ All paths below are relative to `/api/v1`. Import Postman collection: `postman/H
 
 **Stores:** `GET|POST /stores/list`, `POST /stores/search`, `POST /stores/send-otp`, `POST /stores/verify-otp`, `POST /stores/onboard`, `POST /stores/update`
 
-**Products:** `POST /products/search`, `POST /products/loose/search`, `POST /products/list-with-attributes`, `POST /products/add-with-attributes`, `POST /products/update-with-attributes`, `POST /products/soft-delete`
+**Products:** `POST /products/search`, `POST /products/loose/search`, `POST /products/list-with-attributes`, `POST /products/add-with-attributes`, `POST /products/add-not-listed-with-attributes`, `POST /products/update-with-attributes`, `POST /products/soft-delete`
 
 **Non-onboarded:** `POST /non_onboarded_store`, `POST /non_onboarded_store/list`, `POST /non_onboarded_store/search`
 

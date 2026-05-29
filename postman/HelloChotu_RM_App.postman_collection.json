@@ -340,6 +340,18 @@
           }
         },
         {
+          "name": "Add Not Listed Product (With Attributes)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"title\": \"Custom Not Listed Product\",\n  \"cat_id\": \"13\",\n  \"img\": \"https://example.com/product.png\",\n  \"description\": \"Store-specific item pending approval\",\n  \"sub_cat_id\": \"\",\n  \"status\": \"0\",\n  \"about_product\": [\"Fresh\", \"Local\"],\n  \"product_information\": {\n    \"Brand\": \"Store brand\",\n    \"Unit\": \"1 kg\"\n  },\n  \"product_images\": [],\n  \"attributes\": [\n    {\n      \"mprice\": \"100\",\n      \"sprice\": \"0\",\n      \"mdiscount\": \"10\",\n      \"mstock\": \"1\",\n      \"title\": \"1 kg\",\n      \"srequire\": \"0\"\n    }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/products/add-not-listed-with-attributes"
+          }
+        },
+        {
           "name": "Update With Attributes",
           "request": {
             "method": "POST",
