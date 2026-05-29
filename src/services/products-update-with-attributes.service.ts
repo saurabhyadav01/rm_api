@@ -1,5 +1,4 @@
 import fs from "fs/promises";
-import path from "path";
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
 import {
@@ -7,6 +6,7 @@ import {
   parseAttributePricing,
   resolveAndSaveImage,
   resolveAttrImage,
+  resolveStoredImageAbsPath,
   sanitizeUtf8LikePhp,
   s,
   toAboutProductString,
@@ -23,7 +23,7 @@ async function resolveMainImage(imgInput: string) {
     if (!saved) return { error: isHttpUrl(imgInput) ? "Unable to fetch image from URL" : "Invalid image data" };
     return { relPath: saved.relPath, absPath: saved.absPath };
   }
-  return { relPath: imgInput, absPath: path.join(process.cwd(), imgInput) };
+  return { relPath: imgInput, absPath: resolveStoredImageAbsPath(imgInput) };
 }
 
 function buildProductFields(data: Record<string, unknown>, mainImagePath: string, productImages: string[]) {

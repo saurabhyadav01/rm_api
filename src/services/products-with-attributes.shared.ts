@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { resolveStorageAbsoluteDir } from "../config/uploads";
 
 export function s(v: unknown) {
   return String(v ?? "").trim();
@@ -20,8 +21,9 @@ async function saveImageFromUrl(url: string, outDir: string, allowedExt: string[
   const buf = Buffer.from(await resp.arrayBuffer());
   const extFromUrl = path.extname(new URL(url).pathname).replace(".", "").toLowerCase();
   const ext = extFromUrl && allowedExt.includes(extFromUrl) ? extFromUrl : "jpg";
-  const relPath = path.posix.join(outDir.replaceAll("\\", "/"), `${Date.now()}_${Math.floor(Math.random() * 1e9)}.${ext}`);
-  const absPath = path.join(process.cwd(), relPath);
+  const fileName = `${Date.now()}_${Math.floor(Math.random() * 1e9)}.${ext}`;
+  const relPath = path.posix.join(outDir.replaceAll("\\", "/"), fileName);
+  const absPath = path.join(resolveStorageAbsoluteDir(outDir), fileName);
   await fs.mkdir(path.dirname(absPath), { recursive: true });
   await fs.writeFile(absPath, buf);
   return { relPath, absPath };
@@ -34,11 +36,21 @@ async function saveImageFromDataUri(dataUri: string, outDir: string) {
   const b64 = m[2].replace(/ /g, "+");
   const buf = Buffer.from(b64, "base64");
   if (!buf.length) return null;
-  const relPath = path.posix.join(outDir.replaceAll("\\", "/"), `${Date.now()}_${Math.floor(Math.random() * 1e9)}.${ext}`);
-  const absPath = path.join(process.cwd(), relPath);
+  const fileName = `${Date.now()}_${Math.floor(Math.random() * 1e9)}.${ext}`;
+  const relPath = path.posix.join(outDir.replaceAll("\\", "/"), fileName);
+  const absPath = path.join(resolveStorageAbsoluteDir(outDir), fileName);
   await fs.mkdir(path.dirname(absPath), { recursive: true });
   await fs.writeFile(absPath, buf);
   return { relPath, absPath };
+}
+
+export function resolveStoredImageAbsPath(relPath: string): string {
+  const normalized = String(relPath ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
+  if (path.isAbsolute(relPath)) return relPath;
+  if (normalized.startsWith("images/")) {
+    return path.join(resolveStorageAbsoluteDir(normalized));
+  }
+  return path.join(process.cwd(), normalized);
 }
 
 export async function resolveAndSaveImage(input: string, outDir: string) {
