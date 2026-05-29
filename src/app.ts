@@ -2,7 +2,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import helmet from "helmet";
 import morgan from "morgan";
-import { getImagesRootDir, getUploadsRootDir } from "./config/uploads";
+import { getLegacyImagesRootDir, getUploadsRootDir } from "./config/uploads";
 import { getApiVersionPath } from "./config/version";
 import { parseCorsOrigins } from "./config/public-url";
 import { router } from "./routes";
@@ -35,37 +35,19 @@ export function createApp() {
   );
   app.use(morgan("dev"));
 
-  // Serve uploaded onboarding / store files (GET /uploads/stores/...)
-  app.use(
-    "/uploads",
-    express.static(getUploadsRootDir(), {
-      index: false,
-      fallthrough: false,
-      maxAge: "7d",
-    }),
-  );
-  // Legacy product images written by add-product endpoints (GET /images/product/...)
-  app.use(
-    "/images",
-    express.static(getImagesRootDir(), {
-      index: false,
-      fallthrough: false,
-      maxAge: "7d",
-    }),
-  );
+  const staticOpts = { index: false, fallthrough: true, maxAge: "7d" as const };
+
+  // New RM uploads (GET /uploads/stores/...)
+  app.use("/uploads", express.static(getUploadsRootDir(), staticOpts));
+  // Legacy HelloChotu images (GET /images/store/..., /images/dstore.png, …)
+  app.use("/images", express.static(getLegacyImagesRootDir(), staticOpts));
 
   const versionPath = getApiVersionPath();
   app.get("/", (_req, res) => res.redirect(`/api${versionPath}/health`));
   app.use(`/api${versionPath}`, router);
   // When reverse proxy only forwards /api — same files at /api/v1/uploads/...
-  app.use(
-    `/api${versionPath}/uploads`,
-    express.static(getUploadsRootDir(), { index: false, fallthrough: false, maxAge: "7d" }),
-  );
-  app.use(
-    `/api${versionPath}/images`,
-    express.static(getImagesRootDir(), { index: false, fallthrough: false, maxAge: "7d" }),
-  );
+  app.use(`/api${versionPath}/uploads`, express.static(getUploadsRootDir(), staticOpts));
+  app.use(`/api${versionPath}/images`, express.static(getLegacyImagesRootDir(), staticOpts));
   // Backward-compatible unversioned mount (existing clients / production health URL)
   if (versionPath) {
     app.use("/api", router);

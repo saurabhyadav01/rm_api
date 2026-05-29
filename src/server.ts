@@ -1,5 +1,6 @@
 import "./config/load-env";
 import { envFileLoadedFrom, warnIfRmJwtMissing } from "./config/load-env";
+import { getLegacyImagesRootDir, getUploadsRootDir } from "./config/uploads";
 
 warnIfRmJwtMissing();
 
@@ -22,4 +23,8 @@ app.listen(port, () => {
     // eslint-disable-next-line no-console
     console.log(`[rm] env loaded from ${envFrom}`);
   }
+  // eslint-disable-next-line no-console
+  console.log(`[rm] uploads dir: ${getUploadsRootDir()}`);
+  // eslint-disable-next-line no-console
+  console.log(`[rm] legacy images dir: ${getLegacyImagesRootDir()}`);
 });

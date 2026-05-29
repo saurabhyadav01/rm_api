@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { getLegacyImagesRootDir, getUploadsRootDir, resolveStorageAbsoluteDir } from "../config/uploads";
 
 export type UploadResult =
   | { status: true; message: string; file_name: string; file_path: string }
@@ -37,16 +38,26 @@ export async function saveUploadedFile(opts: {
     };
   }
 
-  const dirAbs = path.isAbsolute(opts.targetDir) ? opts.targetDir : path.join(process.cwd(), opts.targetDir);
+  const dirAbs = resolveStorageAbsoluteDir(opts.targetDir);
   await fs.mkdir(dirAbs, { recursive: true });
 
   const fileName = opts.fileNameOverride ?? `img_${Date.now()}_${Math.floor(Math.random() * 1e9)}.${fileExt}`;
   const destinationAbs = path.join(dirAbs, fileName);
   await fs.writeFile(destinationAbs, opts.buffer);
 
-  const destinationRel = path.isAbsolute(opts.targetDir)
-    ? destinationAbs
-    : path.join(opts.targetDir, fileName);
+  const normalizedDir = String(opts.targetDir ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
+  let destinationRel: string;
+  if (path.isAbsolute(opts.targetDir)) {
+    if (destinationAbs.startsWith(getUploadsRootDir())) {
+      destinationRel = path.posix.join("uploads", path.relative(getUploadsRootDir(), destinationAbs));
+    } else if (destinationAbs.startsWith(getLegacyImagesRootDir())) {
+      destinationRel = path.posix.join("images", path.relative(getLegacyImagesRootDir(), destinationAbs));
+    } else {
+      destinationRel = destinationAbs;
+    }
+  } else {
+    destinationRel = path.posix.join(normalizedDir.replace(/\/$/, ""), fileName);
+  }
 
   return {
     status: true,
