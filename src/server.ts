@@ -1,8 +1,13 @@
 import "./config/load-env";
 import { envFileLoadedFrom, warnIfRmJwtMissing } from "./config/load-env";
-import { getLegacyImagesRootDir, getUploadsRootDir } from "./config/uploads";
+import {
+  getLegacyImagesRootDir,
+  getUploadsRootDir,
+  warnIfLegacyImagesDirMissing,
+} from "./config/uploads";
 
 warnIfRmJwtMissing();
+warnIfLegacyImagesDirMissing();
 
 import { createApp } from "./app";
 import { getApiBaseUrl } from "./config/public-url";
