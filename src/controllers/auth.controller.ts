@@ -4,6 +4,7 @@ import { findActiveRmByLoginId, findActiveRmByPhone } from "../repositories/rela
 import { findRaIdByFranchiseeId } from "../repositories/franchisee.repo";
 import { signRmToken } from "../services/jwt.service";
 import { generateOtp, getOtpMeta, verifyOtp } from "../services/otp.service";
+import { isSmsConfigured, sendOtpSms, SmsSendError } from "../services/sms.service";
 
 function maskPhone(phone: string): string {
   const p = phone.trim();
@@ -54,6 +55,7 @@ async function buildRmLoginData(rm: any) {
 const phoneSchema = z.object({
   phone: z.string().min(6).max(20),
   role: z.literal("rm").optional(),
+  lang: z.string().min(2).max(5).optional(),
 });
 
 export async function requestOtp(req: Request, res: Response) {
@@ -76,7 +78,38 @@ export async function requestOtp(req: Request, res: Response) {
       data: null,
     });
 
+  if (!isSmsConfigured() && process.env.RM_ALLOW_OTP_WITHOUT_SMS !== "true") {
+    return send(res, 503, {
+      success: false,
+      status_code: 503,
+      message: "SMS service is not configured. Contact support.",
+      data: null,
+    });
+  }
+
   const { otp } = generateOtp(rm.phone, 300);
+  const lang = parsed.data.lang ?? "en";
+
+  if (isSmsConfigured()) {
+    try {
+      await sendOtpSms(rm.phone, otp, lang);
+    } catch (err) {
+      const msg =
+        err instanceof SmsSendError
+          ? err.message
+          : "Unable to send OTP. Please try again later.";
+      return send(res, 503, {
+        success: false,
+        status_code: 503,
+        message: msg,
+        data: null,
+      });
+    }
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn("[rm] SMS skipped (RM_ALLOW_OTP_WITHOUT_SMS=true); OTP not sent to phone");
+  }
+
   const meta = getOtpMeta(rm.phone);
   const otpId = meta?.otpId ?? 0;
   const expiresIn = meta?.expiresInSeconds ?? 300;
@@ -94,7 +127,6 @@ export async function requestOtp(req: Request, res: Response) {
       phone: maskPhone(rm.phone),
       otp_sent_count: sentCount,
       remaining_attempts: remainingAttempts,
-      otp, // keep for testing; remove when SMS integrated
     },
   });
 }
