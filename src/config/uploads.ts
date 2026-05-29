@@ -2,11 +2,16 @@ import fs from "fs";
 import path from "path";
 import { getApiBaseUrl, getApiPrefix } from "./public-url";
 
+/** `rm_api` package root (works when PM2 cwd is not the app folder). */
+function getRmApiRootDir(): string {
+  return path.resolve(__dirname, "../..");
+}
+
 /** New RM uploads (onboarding multipart) → `rm_api/uploads/`. */
 export function getUploadsRootDir(): string {
   const fromEnv = process.env.RM_UPLOADS_DIR?.trim();
   if (fromEnv) return path.resolve(fromEnv);
-  return path.join(process.cwd(), "uploads");
+  return path.join(getRmApiRootDir(), "uploads");
 }
 
 /**
@@ -17,14 +22,12 @@ export function getLegacyImagesRootDir(): string {
   const fromEnv = process.env.LEGACY_IMAGES_DIR?.trim();
   if (fromEnv) return path.resolve(fromEnv);
 
-  const candidates = [
-    path.join(process.cwd(), "..", "hellochotu_microservices", "images"),
-    path.join(process.cwd(), "images"),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return path.resolve(c);
-  }
-  return path.resolve(candidates[0]);
+  const appRoot = getRmApiRootDir();
+  const sibling = path.join(appRoot, "..", "hellochotu_microservices", "images");
+  if (fs.existsSync(sibling)) return path.resolve(sibling);
+
+  // Do not fall back to `rm_api/images` — that folder is not where legacy store files live.
+  return path.resolve(sibling);
 }
 
 /** @deprecated Use {@link getLegacyImagesRootDir} */

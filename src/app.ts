@@ -90,6 +90,15 @@ export function createApp() {
       });
     }
 
+    const isMissingFile =
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as NodeJS.ErrnoException).code === "ENOENT";
+    if (isMissingFile) {
+      return res.status(404).json({ error: "Not Found" });
+    }
+
     // eslint-disable-next-line no-console
     console.error("[rm] unhandled error", err);
     res.status(500).json({ error: "Internal Server Error" });
