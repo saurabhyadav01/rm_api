@@ -2,6 +2,7 @@ import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
 import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import {
+  fetchProductCategoryMap,
   fetchVariantsByProductId,
   mapVariantToLegacyAttribute,
   productImageFromRow,
@@ -198,6 +199,9 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
     { store_id, offset, limit } as any,
   );
 
+  const productIds = (products ?? []).map((p) => Number(p.id));
+  const categoryMap = await fetchProductCategoryMap(productIds);
+
   const productList: any[] = [];
   for (const product of products ?? []) {
     const variants = await fetchVariantsByProductId(Number(product.id));
@@ -205,14 +209,16 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
       .sort((a, b) => Number(b.id) - Number(a.id))
       .map((v) => mapVariantToLegacyAttribute(v, { includeId: true }));
 
+    const cat = categoryMap.get(Number(product.id));
+
     productList.push({
       id: product.id,
       store_id: product.store_id,
       loose_product: String(product.is_loose_product ?? "") === "1",
-      cat_id: product.cat_id ?? null,
-      cat_name: null,
-      sub_cat_id: product.sub_cat_id ?? null,
-      sub_cat_name: "",
+      cat_id: cat?.cat_id ?? product.cat_id ?? null,
+      cat_name: cat?.cat_name ?? null,
+      sub_cat_id: cat?.sub_cat_id ?? (product.sub_cat_id != null ? String(product.sub_cat_id) : null),
+      sub_cat_name: cat?.sub_cat_name ?? "",
       title: cleanAggressive(productTitleFromRow(product)),
       img: productImageFromRow(product),
       product_images: product.product_images ? JSON.parse(String(product.product_images)) : [],

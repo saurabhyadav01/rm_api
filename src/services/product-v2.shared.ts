@@ -9,6 +9,99 @@ export const PRODUCT_TITLE_SQL = "COALESCE(p.name, p.title)";
 
 type VariantRow = RowDataPacket & Record<string, unknown>;
 
+export type ProductCategoryInfo = {
+  cat_id: number | string | null;
+  cat_name: string | null;
+  sub_cat_id: string | null;
+  sub_cat_name: string;
+};
+
+type CategoryMappingRow = RowDataPacket & {
+  product_id: number;
+  sub_cat_id: number | null;
+  sub_cat_name: string | null;
+  cat_id: number | null;
+  cat_name: string | null;
+};
+
+/**
+ * v2 schema: categories via product_category_mappings → subcategories → categories.
+ * (products table has no cat_id column in normalized DB.)
+ */
+export async function fetchProductCategoryMap(
+  productIds: number[],
+): Promise<Map<number, ProductCategoryInfo>> {
+  const map = new Map<number, ProductCategoryInfo>();
+  const ids = productIds.map((id) => Number(id)).filter((id) => id > 0);
+  if (!ids.length) return map;
+
+  const idList = ids.join(",");
+
+  const [rows] = await pool.query<CategoryMappingRow[]>(
+    `
+    SELECT
+      pcm.product_id,
+      pcm.category_id AS sub_cat_id,
+      sc.name AS sub_cat_name,
+      sc.category_id AS cat_id,
+      c.name AS cat_name
+    FROM product_category_mappings pcm
+    LEFT JOIN subcategories sc ON sc.id = pcm.category_id
+      AND (sc.is_deleted = 0 OR sc.is_deleted IS NULL)
+    LEFT JOIN categories c ON c.id = sc.category_id
+      AND (c.is_deleted = 0 OR c.is_deleted IS NULL)
+    WHERE pcm.product_id IN (${idList})
+      AND (pcm.status = 1 OR pcm.status IS NULL)
+    ORDER BY pcm.product_id ASC, pcm.is_primary DESC, pcm.id ASC
+    `,
+  );
+
+  for (const row of rows ?? []) {
+    const pid = Number(row.product_id);
+    if (map.has(pid)) continue;
+    map.set(pid, {
+      cat_id: row.cat_id ?? null,
+      cat_name: row.cat_name ? String(row.cat_name).trim() : null,
+      sub_cat_id: row.sub_cat_id != null ? String(row.sub_cat_id) : null,
+      sub_cat_name: row.sub_cat_name ? String(row.sub_cat_name).trim() : "",
+    });
+  }
+
+  const missing = ids.filter((id) => !map.has(id));
+  if (missing.length) {
+    const missingList = missing.join(",");
+    const [legacyRows] = await pool.query<CategoryMappingRow[]>(
+      `
+      SELECT
+        p.id AS product_id,
+        p.sub_cat_id AS sub_cat_id,
+        sc.name AS sub_cat_name,
+        sc.category_id AS cat_id,
+        c.name AS cat_name
+      FROM products p
+      LEFT JOIN subcategories sc ON sc.id = p.sub_cat_id
+      LEFT JOIN categories c ON c.id = sc.category_id
+      WHERE p.id IN (${missingList})
+        AND p.sub_cat_id IS NOT NULL
+        AND CAST(p.sub_cat_id AS UNSIGNED) > 0
+      `,
+    ).catch(() => [[] as CategoryMappingRow[]]);
+
+    for (const row of legacyRows ?? []) {
+      const pid = Number(row.product_id);
+      if (map.has(pid)) continue;
+      map.set(pid, {
+        cat_id: row.cat_id ?? null,
+        cat_name: row.cat_name ? String(row.cat_name).trim() : null,
+        sub_cat_id: row.sub_cat_id != null ? String(row.sub_cat_id) : null,
+        sub_cat_name: row.sub_cat_name ? String(row.sub_cat_name).trim() : "",
+      });
+    }
+  }
+
+  return map;
+}
+
 export function fmt0(n: number) {
   if (!Number.isFinite(n)) return "0";
   return n.toFixed(0);

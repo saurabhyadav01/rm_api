@@ -2,6 +2,7 @@ import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
 import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import {
+  fetchProductCategoryMap,
   fetchVariantsByProductId,
   mapVariantToLegacyAttribute,
   PRODUCT_TITLE_SQL,
@@ -114,15 +115,19 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       { store_id, kw: `%${keyword}%`, offset, limit } as any,
     );
 
+    const productIds = (products ?? []).map((p) => Number(p.id));
+    const categoryMap = await fetchProductCategoryMap(productIds);
+
     const productList: any[] = [];
     for (const product of products ?? []) {
+      const cat = categoryMap.get(Number(product.id));
       const productData: any = {};
       productData.id = product.id;
       productData.store_id = product.store_id;
-      productData.cat_id = product.cat_id ?? product.category_id ?? null;
-      productData.cat_name = null; // no tbl_category in v2
-      productData.sub_cat_id = product.sub_cat_id ?? product.subcategory_id ?? null;
-      productData.sub_cat_name = ""; // no tbl_product_category in v2
+      productData.cat_id = cat?.cat_id ?? product.cat_id ?? product.category_id ?? null;
+      productData.cat_name = cat?.cat_name ?? null;
+      productData.sub_cat_id = cat?.sub_cat_id ?? product.sub_cat_id ?? product.subcategory_id ?? null;
+      productData.sub_cat_name = cat?.sub_cat_name ?? "";
       productData.title = cleanText(productTitleFromRow(product));
       productData.img = productImageFromRow(product);
       productData.product_images = product.product_images ? (JSON.parse(String(product.product_images)) ?? []) : [];
