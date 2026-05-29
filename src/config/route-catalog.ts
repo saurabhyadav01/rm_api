@@ -32,6 +32,7 @@ export const ROUTE_CATALOG: RouteEntry[] = [
   { method: "POST", path: "/products/loose/search", description: "Search loose products" },
   { method: "POST", path: "/products/list-with-attributes", description: "List store products with attributes" },
   { method: "POST", path: "/products/add-with-attributes", description: "Add product with variants" },
+  { method: "POST", path: "/products/add-not-listed-with-attributes", description: "Add not-listed product (loose + pending approval) with variants" },
   { method: "POST", path: "/products/update-with-attributes", description: "Update product with variants" },
   { method: "POST", path: "/products/soft-delete", description: "Soft-delete a product" },
 
