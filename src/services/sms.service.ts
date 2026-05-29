@@ -73,6 +73,50 @@ export async function sendOnboardingMessages(
   }
 }
 
+/** Store onboarding OTP — PHP sends `ccode` + 10-digit mobile (e.g. 917518553073). */
+export async function sendStoreOtpSms(mobile: string, otp: string, ccode: string): Promise<void> {
+  if (!isSmsConfigured()) {
+    throw new SmsSendError("SMS_API_KEY is not configured on the server");
+  }
+
+  const localNumber = toSmsMobileNumber(mobile);
+  if (localNumber.length !== 10) {
+    throw new SmsSendError("Invalid mobile number for SMS");
+  }
+
+  const ccodeDigits = String(ccode ?? "91").replace(/\D/g, "") || "91";
+  const message = getOtpMessage("en", otp);
+  const requestBody = {
+    number: [`${ccodeDigits}${localNumber}`],
+    message,
+    senderId: SMS_SENDER_ID,
+    templateId: SMS_OTP_TEMPLATE_ID,
+  };
+
+  try {
+    const response = await axios.post(SMS_API_URL, requestBody, {
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SMS_API_KEY,
+      },
+      timeout: Number(process.env.SMS_TIMEOUT_MS || 15000),
+    });
+    // eslint-disable-next-line no-console
+    console.log("[rm][sms] store OTP sent", { number: requestBody.number, provider: response.data });
+  } catch (error: unknown) {
+    const err = error as { response?: { status?: number; data?: unknown }; message?: string };
+    const status = err.response?.status;
+    const body = err.response?.data;
+    // eslint-disable-next-line no-console
+    console.error("[rm][sms] store OTP failed", { number: requestBody.number, status, body, message: err.message });
+
+    if (status === 401) {
+      throw new SmsSendError("SMS provider rejected API key (401). Check SMS_API_KEY in .env", status, body);
+    }
+    throw new SmsSendError(err.message || "Failed to send OTP SMS", status, body);
+  }
+}
+
 export async function sendOtpSms(phone: string, otp: string, lang = "en"): Promise<void> {
   if (!isSmsConfigured()) {
     throw new SmsSendError("SMS_API_KEY is not configured on the server");

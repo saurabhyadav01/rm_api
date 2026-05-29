@@ -1,6 +1,14 @@
 import { pool } from "../db/mysql";
 import { type RowDataPacket } from "mysql2/promise";
 
+function asUtf8mb4Bin(expr: string) {
+  return `CAST(${expr} AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_bin`;
+}
+
+function rmIdEqualsSql(column: string, param = ":rm_id") {
+  return `${asUtf8mb4Bin(`TRIM(${column})`)} = ${asUtf8mb4Bin(`TRIM(${param})`)}`;
+}
+
 type Input = {
   rm_id: string;
   keyword?: unknown;
@@ -48,11 +56,13 @@ export async function listNonOnboardedStoresService(input: Input): Promise<Servi
   const offset = (page - 1) * limit;
 
   try {
-    const whereParts: string[] = ["ns.rm_id = :rm_id", "ns.is_deleted = 0"];
+    const whereParts: string[] = [rmIdEqualsSql("ns.rm_id"), "ns.is_deleted = 0"];
     const params: Record<string, unknown> = { rm_id };
 
     if (keyword) {
-      whereParts.push("(ns.shop_name LIKE :kw OR ns.phone_no LIKE :kw OR ns.email LIKE :kw)");
+      whereParts.push(
+        `(${asUtf8mb4Bin("ns.shop_name")} LIKE ${asUtf8mb4Bin(":kw")} OR ${asUtf8mb4Bin("ns.phone_no")} LIKE ${asUtf8mb4Bin(":kw")} OR ${asUtf8mb4Bin("ns.email")} LIKE ${asUtf8mb4Bin(":kw")})`,
+      );
       params.kw = `%${keyword}%`;
     }
 

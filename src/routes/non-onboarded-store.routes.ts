@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { upsertNonOnboardedStore } from "../controllers/non-onboarded-store.controller";
 import { listNonOnboardedStores } from "../controllers/non-onboarded-store-list.controller";
+import { searchNonOnboardedStores } from "../controllers/non-onboarded-store-search.controller";
 
 export const nonOnboardedStoreRouter = Router();
 
@@ -22,18 +23,7 @@ nonOnboardedStoreRouter.all("/list", (req, res, next) => {
 });
 nonOnboardedStoreRouter.post("/list", listNonOnboardedStores);
 
-// Alias: search endpoint (same behavior/response)
+// Search non-onboarded stores by RM (PHP — POST only)
 nonOnboardedStoreRouter.options("/search", (_req, res) => res.sendStatus(200));
-nonOnboardedStoreRouter.all("/search", (req, res, next) => {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      success: false,
-      ResponseCode: "405",
-      Result: "false",
-      ResponseMsg: "Method Not Allowed",
-    });
-  }
-  return next();
-});
-nonOnboardedStoreRouter.post("/search", listNonOnboardedStores);
+nonOnboardedStoreRouter.post("/search", searchNonOnboardedStores);
 

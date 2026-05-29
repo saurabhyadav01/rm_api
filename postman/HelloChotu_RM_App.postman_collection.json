@@ -2,21 +2,23 @@
   "info": {
     "_postman_id": "hellochotu-rm-app-collection",
     "name": "HelloChotu RM App API",
-    "description": "HelloChotu RM App API\n\n**URL pattern:** `{{base_url}}/api/{{api_version}}/...`\n\nExample: `https://rmapi.hellochotu.com/api/v1/stores/onboard`\n\nVariables: `base_url`, `api_version`, `token`, `rm_id`, `store_id`, `phone`, `username`, `password`.",
+    "description": "HelloChotu RM App API — canonical routes only.\n\n**URL:** `{{base_url}}/api/{{api_version}}/...`\n\nVariables: `base_url`, `api_version`, `token`, `rm_id`, `store_id`, `phone`, `username`, `password`, `product_id`, `pincode`, `category_type_id`, `store_mobile`, `store_otp`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "base_url", "value": "https://rmapi.hellochotu.com" },
-    { "key": "api_version", "value": "v1", "description": "Default API version (v1)" },
-    { "key": "api_host", "value": "rmapi.hellochotu.com" },
-    { "key": "local_base_url", "value": "http://localhost:4001" },
+    { "key": "api_version", "value": "v1" },
     { "key": "token", "value": "" },
     { "key": "rm_id", "value": "RM123" },
     { "key": "store_id", "value": "1" },
     { "key": "phone", "value": "9876543210" },
     { "key": "username", "value": "RM123" },
     { "key": "password", "value": "change-me" },
-    { "key": "product_id", "value": "1" }
+    { "key": "product_id", "value": "1" },
+    { "key": "pincode", "value": "110001" },
+    { "key": "category_type_id", "value": "3" },
+    { "key": "store_mobile", "value": "9876543210" },
+    { "key": "store_otp", "value": "123456" }
   ],
   "item": [
     {
@@ -27,17 +29,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/api/{{api_version}}/health",
-            "description": "v1: https://rmapi.hellochotu.com/api/v1/health"
-          }
-        },
-        {
-          "name": "Health Check (legacy /api)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{base_url}}/api/health",
-            "description": "Unversioned alias — https://rmapi.hellochotu.com/api/health"
+            "url": "{{base_url}}/api/{{api_version}}/health"
           }
         },
         {
@@ -45,8 +37,7 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{base_url}}/api/{{api_version}}",
-            "description": "Lists all routes with full URLs for the current base_url"
+            "url": "{{base_url}}/api/{{api_version}}"
           }
         }
       ]
@@ -115,41 +106,78 @@
             },
             "url": "{{base_url}}/api/{{api_version}}/auth/verify-otp"
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "Master Data",
+      "item": [
         {
-          "name": "Request OTP (alias)",
+          "name": "Get Master Data",
           "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"role\": \"rm\"\n}"
-            },
-            "url": "{{base_url}}/api/{{api_version}}/auth/request-otp"
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/{{api_version}}/master-data"
           }
         },
         {
-          "name": "Login OTP (alias)",
+          "name": "Get Master Data (POST)",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phone\": \"{{phone}}\",\n  \"otp\": \"123456\"\n}"
-            },
-            "url": "{{base_url}}/api/{{api_version}}/auth/login-otp"
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/api/{{api_version}}/master-data"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "item": [
+        {
+          "name": "Category List (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/{{api_version}}/categories"
           }
         },
         {
-          "name": "Login Password (alias)",
+          "name": "Category List (POST)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/api/{{api_version}}/categories"
+          }
+        },
+        {
+          "name": "Categories By Type",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+              "raw": "{\n  \"category_type_id\": \"{{category_type_id}}\"\n}"
             },
-            "url": "{{base_url}}/api/{{api_version}}/auth/login-password"
+            "url": "{{base_url}}/api/{{api_version}}/categories/by-type"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pincode",
+      "item": [
+        {
+          "name": "Pincode Lookup",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pincode\": \"{{pincode}}\"\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/pincode"
           }
         }
       ]
@@ -158,13 +186,10 @@
       "name": "Stores",
       "item": [
         {
-          "name": "Stores List",
+          "name": "Stores List (POST)",
           "request": {
             "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{token}}", "disabled": true }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"page\": 1,\n  \"limit\": 10,\n  \"start_date\": \"\",\n  \"end_date\": \"\",\n  \"status\": \"\",\n  \"business_type\": \"\",\n  \"include_product_counts\": true\n}"
@@ -190,25 +215,61 @@
           }
         },
         {
-          "name": "Stores Search (alias)",
+          "name": "Stores Search",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"keyword\": \"grocery\",\n  \"page\": 1,\n  \"limit\": 20\n}"
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"keyword\": \"\",\n  \"status\": \"\",\n  \"page\": 1,\n  \"limit\": 10\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/stores/search"
           }
         },
         {
-          "name": "Store Onboard (add store)",
+          "name": "Send Store OTP",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"ra_id\": \"ra01\",\n  \"fr_id\": \"fr01\",\n  \"mobile\": \"9876543210\",\n  \"business_name\": \"Test Store\",\n  \"owner_name\": \"Owner Name\",\n  \"email\": \"store@example.com\",\n  \"full_address\": \"123 Main St, Delhi 110001\",\n  \"business_type\": \"Grocery\",\n  \"latitude\": \"28.6139\",\n  \"longitude\": \"77.2090\",\n  \"opentime\": \"09:00 AM\",\n  \"closetime\": \"10:00 PM\",\n  \"store_banner\": \"images/dstore.png\",\n  \"cover_image_url\": \"images/store/1763721210.jpg\",\n  \"retailer_fees\": \"1\"\n}"
+              "raw": "{\n  \"mobile\": \"{{store_mobile}}\",\n  \"ccode\": \"91\"\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/stores/send-otp"
+          }
+        },
+        {
+          "name": "Verify Store OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json?.token) pm.collectionVariables.set('token', json.token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"{{store_mobile}}\",\n  \"otp\": \"{{store_otp}}\",\n  \"ccode\": \"91\"\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/stores/verify-otp"
+          }
+        },
+        {
+          "name": "Store Onboard",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"ra_id\": \"ra01\",\n  \"fr_id\": \"fr01\",\n  \"mobile\": \"{{store_mobile}}\",\n  \"business_name\": \"Test Store\",\n  \"owner_name\": \"Owner Name\",\n  \"email\": \"store@example.com\",\n  \"full_address\": \"123 Main St, Delhi 110001\",\n  \"business_type\": \"Grocery\",\n  \"latitude\": \"28.6139\",\n  \"longitude\": \"77.2090\",\n  \"opentime\": \"09:00 AM\",\n  \"closetime\": \"10:00 PM\",\n  \"store_banner\": \"images/dstore.png\",\n  \"cover_image_url\": \"images/store/1763721210.jpg\",\n  \"retailer_fees\": \"1\"\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/stores/onboard"
           }
@@ -220,21 +281,9 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"mobile\": \"9876543210\",\n  \"business_name\": \"Updated Store Name\",\n  \"email\": \"store@example.com\",\n  \"full_address\": \"456 Updated St, Delhi 110001\",\n  \"business_type\": \"Grocery\",\n  \"store_banner\": \"images/dstore.png\",\n  \"cover_image_url\": \"images/store/1763721210.jpg\"\n}"
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"mobile\": \"{{store_mobile}}\",\n  \"business_name\": \"Updated Store Name\",\n  \"email\": \"store@example.com\",\n  \"full_address\": \"456 Updated St, Delhi 110001\",\n  \"business_type\": \"Grocery\",\n  \"store_banner\": \"images/dstore.png\",\n  \"cover_image_url\": \"images/store/1763721210.jpg\"\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/stores/update"
-          }
-        },
-        {
-          "name": "Store Add (alias)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"mobile\": \"9876543210\",\n  \"business_name\": \"Test Store\",\n  \"full_address\": \"123 Main St, Delhi 110001\"\n}"
-            },
-            "url": "{{base_url}}/api/{{api_version}}/stores/add"
           }
         }
       ]
@@ -243,7 +292,7 @@
       "name": "Products",
       "item": [
         {
-          "name": "Products Search (store)",
+          "name": "Products Search",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
@@ -252,18 +301,6 @@
               "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"keyword\": \"rice\",\n  \"page\": 1,\n  \"limit\": 20\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/products/search"
-          }
-        },
-        {
-          "name": "Products Search v1 (alias)",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"keyword\": \"rice\",\n  \"page\": 1,\n  \"limit\": 20\n}"
-            },
-            "url": "{{base_url}}/api/{{api_version}}/products/search_v1"
           }
         },
         {
@@ -291,18 +328,6 @@
           }
         },
         {
-          "name": "Update With Attributes",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"product_id\": \"{{product_id}}\",\n  \"store_id\": \"{{store_id}}\",\n  \"status\": \"1\",\n  \"title\": \"Updated Product\",\n  \"cat_id\": \"13\",\n  \"img\": \"images/product/sample.jpg\",\n  \"attributes\": [\n    {\n      \"attribute_id\": \"1\",\n      \"mprice\": \"120\",\n      \"sprice\": \"0\",\n      \"mdiscount\": \"10\",\n      \"mstock\": \"1\",\n      \"title\": \"1kg\",\n      \"srequire\": \"0\"\n    }\n  ]\n}"
-            },
-            "url": "{{base_url}}/api/{{api_version}}/products/update-with-attributes"
-          }
-        },
-        {
           "name": "Add With Attributes",
           "request": {
             "method": "POST",
@@ -312,6 +337,18 @@
               "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"rm_id\": \"{{rm_id}}\",\n  \"title\": \"New Product\",\n  \"mrp\": \"100\",\n  \"price\": \"90\",\n  \"stock\": \"50\",\n  \"lowStockLimit\": \"10\",\n  \"productVariants\": [\n    {\n      \"productSize\": \"1kg\",\n      \"mrp\": \"100\",\n      \"discountedPrice\": \"90\",\n      \"stock\": \"50\",\n      \"lowStockLimit\": \"10\"\n    }\n  ]\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/products/add-with-attributes"
+          }
+        },
+        {
+          "name": "Update With Attributes",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": \"{{product_id}}\",\n  \"store_id\": \"{{store_id}}\",\n  \"status\": \"1\",\n  \"title\": \"Updated Product\",\n  \"cat_id\": \"13\",\n  \"img\": \"images/product/sample.jpg\",\n  \"attributes\": [\n    {\n      \"attribute_id\": \"1\",\n      \"mprice\": \"120\",\n      \"sprice\": \"0\",\n      \"mdiscount\": \"10\",\n      \"mstock\": \"1\",\n      \"title\": \"1kg\",\n      \"srequire\": \"0\"\n    }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/products/update-with-attributes"
           }
         },
         {
@@ -338,7 +375,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"shop_name\": \"Pending Shop\",\n  \"owner_name\": \"Owner\",\n  \"phone_no\": \"9876543210\",\n  \"category\": \"Grocery\",\n  \"latitude\": \"28.6139\",\n  \"longitude\": \"77.2090\",\n  \"address_line\": \"Street 1\",\n  \"city\": \"Delhi\",\n  \"pincode\": \"110001\",\n  \"non_onboarding_reason\": \"Docs pending\"\n}"
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"shop_name\": \"Pending Shop\",\n  \"owner_name\": \"Owner\",\n  \"phone_no\": \"9876543210\",\n  \"category\": \"Grocery\",\n  \"latitude\": \"28.6139\",\n  \"longitude\": \"77.2090\",\n  \"address_line\": \"Street 1\",\n  \"city\": \"Delhi\",\n  \"pincode\": \"{{pincode}}\",\n  \"non_onboarding_reason\": \"Docs pending\"\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/non_onboarded_store"
           }
@@ -356,7 +393,7 @@
           }
         },
         {
-          "name": "Search Non-Onboarded Stores (alias)",
+          "name": "Search Non-Onboarded Stores",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
@@ -397,16 +434,12 @@
             "body": {
               "mode": "formdata",
               "formdata": [
-                {
-                  "key": "image",
-                  "type": "file",
-                  "src": []
-                },
+                { "key": "image", "type": "file", "src": [] },
                 {
                   "key": "image_type",
                   "value": "store_banner",
                   "type": "text",
-                  "description": "store_banner | aadhar_doc | pan_doc | non_onboardstore | attribute_image1 | loose_product1 | ..."
+                  "description": "store_banner | aadhar_doc | pan_doc | non_onboardstore | attribute_image1 | loose_product1"
                 }
               ]
             },
@@ -431,10 +464,7 @@
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Test todo\"\n}"
-            },
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Test todo\"\n}" },
             "url": "{{base_url}}/api/{{api_version}}/todos"
           }
         },
@@ -443,10 +473,7 @@
           "request": {
             "method": "PATCH",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"completed\": true\n}"
-            },
+            "body": { "mode": "raw", "raw": "{\n  \"completed\": true\n}" },
             "url": "{{base_url}}/api/{{api_version}}/todos/1"
           }
         }

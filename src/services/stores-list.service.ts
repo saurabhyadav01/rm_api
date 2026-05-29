@@ -31,7 +31,6 @@ export type StoresListInput = {
   status?: unknown;
   business_type?: unknown;
   include_product_counts?: unknown;
-  /** Optional — not in PHP list; kept for /stores/search alias */
   keyword?: unknown;
 };
 

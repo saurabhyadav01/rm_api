@@ -69,6 +69,14 @@ export function createApp() {
       });
     }
 
+    if (isJsonParseError && req.path.endsWith("/categories/by-type")) {
+      return res.status(400).json({
+        ResponseCode: "401",
+        Result: "false",
+        ResponseMsg: "Invalid JSON data",
+      });
+    }
+
     // eslint-disable-next-line no-console
     console.error("[rm] unhandled error", err);
     res.status(500).json({ error: "Internal Server Error" });

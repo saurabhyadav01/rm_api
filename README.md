@@ -35,28 +35,16 @@ API_VERSION=v1
 
 ## Endpoints
 
-All paths below are relative to `/api/v1` (e.g. `POST /api/v1/auth/login`).
+All paths below are relative to `/api/v1`. Import Postman collection: `postman/HelloChotu_RM_App.postman_collection.json`.
 
-- `GET /api/v1` — route catalog + version info
-- `GET /api/v1/health` — includes `version` (package) and `apiVersion` (`v1`)
-- `POST /api/auth/login` body: `{ "username": "...", "password": "..." }`
-- `POST /api/auth/send-otp` body: `{ "phone": "...", "role": "rm" }`
-- `POST /api/auth/verify-otp` body: `{ "phone": "...", "otp": "...", "role": "rm" }`
-- `POST /api/auth/request-otp` — alias of send-otp
-- `POST /api/auth/login-otp` — alias of verify-otp
-- `POST /api/auth/login-password` — alias of login
-- `POST /api/onboarding-image-upload` (multipart/form-data) fields: `image` (optional file), `image_type` (required when image provided)
-- `POST /api/non_onboarded_store/list` body: `{ "rm_id": "...", "keyword": "...", "page": 1, "limit": 10 }`
-- `POST /api/stores/list` body: `{ "rm_id": "...", "keyword": "...", "status": "...", "page": 1, "limit": 10 }`
-- `POST /api/v1/stores/onboard` — add store (same JSON body/response as PHP onboarding)
-- `POST /api/v1/stores/add` — alias of onboard
-- `POST /api/v1/stores/add-store` — alias of onboard
-- `POST /api/rm_checkout` body: `{ "rm_id": "...", "store_id": "...", "checkin_date_time?": "...", "checkout_type?": "manual" }`
-- `POST /api/products/search` body: `{ "store_id": "...", "keyword?": "...", "page?": 1, "limit?": 20 }`
-- `POST /api/products/loose/search` body: `{ "keyword?": "...", "page?": 1, "limit?": 20 }`
-- `POST /api/products/list-with-attributes` body: `{ "store_id": "...", "page?": 1, "limit?": 20 }`
-- `POST /api/products/add-with-attributes` body: (same JSON keys as your PHP add-product API)
-- `POST /api/products/soft-delete` body: `{ "rm_id": "...", "store_id": "...", "product_id": "..." }`
-- `GET /api/todos`
-- `POST /api/todos` body: `{ "title": "..." }`
-- `PATCH /api/todos/:id` body: `{ "done": true }`
+**Auth:** `POST /auth/login`, `POST /auth/send-otp`, `POST /auth/verify-otp`
+
+**Master & categories:** `GET|POST /master-data`, `GET|POST /categories`, `POST /categories/by-type`, `POST /pincode`
+
+**Stores:** `GET|POST /stores/list`, `POST /stores/search`, `POST /stores/send-otp`, `POST /stores/verify-otp`, `POST /stores/onboard`, `POST /stores/update`
+
+**Products:** `POST /products/search`, `POST /products/loose/search`, `POST /products/list-with-attributes`, `POST /products/add-with-attributes`, `POST /products/update-with-attributes`, `POST /products/soft-delete`
+
+**Non-onboarded:** `POST /non_onboarded_store`, `POST /non_onboarded_store/list`, `POST /non_onboarded_store/search`
+
+**Other:** `POST /rm_checkout`, `POST /onboarding-image-upload` (multipart), `GET /health`, `GET /` (route index)

@@ -34,3 +34,26 @@ export function signRmToken(rm: RelationshipManager): string {
   return jwt.sign(payload, secret, { expiresIn: "7d" });
 }
 
+/** Store OTP login — matches legacy PHP JWT shape (1h expiry). */
+export function signStoreOtpToken(mobile: string): string {
+  const secret =
+    process.env.STORE_JWT_SECRET?.trim() ||
+    process.env.JWT_SECRET?.trim() ||
+    "d4e678ad45e89fb8c3a89d6b7f34e912";
+
+  const now = Math.floor(Date.now() / 1000);
+  return jwt.sign(
+    {
+      iat: now,
+      nbf: now,
+      exp: now + 3600,
+      data: {
+        user_id: `${mobile}@store.com`,
+        user_name: "Store User",
+      },
+    },
+    secret,
+    { algorithm: "HS256" },
+  );
+}
+
