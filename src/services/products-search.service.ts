@@ -174,8 +174,12 @@ export async function productsSearchService(data: any): Promise<Record<string, u
     };
   }
 
-  const store_id = data.store_id !== undefined ? s(data.store_id) : "";
-  if (!store_id) return { ResponseCode: "401", Result: "false", ResponseMsg: "store_id is required" };
+  const store_id_raw = data.store_id !== undefined ? s(data.store_id) : "";
+  if (!store_id_raw) return { ResponseCode: "401", Result: "false", ResponseMsg: "store_id is required" };
+  const store_id = await resolveStoreNumericId(store_id_raw);
+  if (!store_id) {
+    return { ResponseCode: "401", Result: "false", ResponseMsg: "Invalid store_id" };
+  }
 
   const keyword = data.keyword !== undefined ? s(data.keyword) : "";
   if (!keyword) return { ResponseCode: "401", Result: "false", ResponseMsg: "keyword is required" };
@@ -189,7 +193,7 @@ export async function productsSearchService(data: any): Promise<Record<string, u
   const offset = (page - 1) * limit;
 
   const whereParts: string[] = ["store_id = :store_id", "is_delete = 0"];
-  const params: Record<string, unknown> = { store_id: Number.isFinite(Number(store_id)) ? Number(store_id) : store_id };
+  const params: Record<string, unknown> = { store_id };
 
   whereParts.push("title LIKE :kw");
   params.kw = `%${keyword}%`;
@@ -269,7 +273,7 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       `,
       {
         product_id: Number(product.id),
-        store_id: Number.isFinite(Number(store_id)) ? Number(store_id) : store_id,
+        store_id,
       } as any,
     );
 
