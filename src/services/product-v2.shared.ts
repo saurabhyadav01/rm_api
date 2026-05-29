@@ -1,5 +1,5 @@
 import { pool } from "../db/mysql";
-import { type RowDataPacket } from "mysql2/promise";
+import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 export const PRODUCT_NOT_DELETED = `(p.is_deleted = 0 OR p.is_deleted IS NULL)`;
 export const PRODUCT_ACTIVE = `${PRODUCT_NOT_DELETED} AND (p.status = 1 OR p.status = '1')`;
@@ -187,4 +187,212 @@ export function mapVariantToLegacyAttribute(v: VariantRow, opts?: { includeId?: 
   }
 
   return base;
+}
+
+export type ProductV2CoreInsert = {
+  title: string;
+  img: string;
+  description: string;
+  status: number;
+  is_loose_product?: number;
+  approval_status?: string;
+};
+
+export type ProductV2Extras = {
+  cat_id?: string | null;
+  sub_cat_id?: string | null;
+  about_product?: string | null;
+  product_information?: string | null;
+  fssai_lic?: string | null;
+  product_images?: string | null;
+  galleryPaths?: string[];
+  /** On update: replace `product_images` rows when gallery paths are present. */
+  replaceGalleryImages?: boolean;
+};
+
+/** `product_category_mappings.category_id` stores subcategory id (legacy `sub_cat_id`). */
+export function resolveSubcategoryIdForMapping(
+  cat_id?: string | null,
+  sub_cat_id?: string | null,
+): number | null {
+  const sub = sub_cat_id != null ? Number(String(sub_cat_id).trim()) : NaN;
+  if (Number.isFinite(sub) && sub > 0) return sub;
+  const cat = cat_id != null ? Number(String(cat_id).trim()) : NaN;
+  if (Number.isFinite(cat) && cat > 0) return cat;
+  return null;
+}
+
+function parseGalleryPaths(product_imagesJson: string | null | undefined, galleryPaths?: string[]): string[] {
+  const out: string[] = [];
+  if (galleryPaths?.length) {
+    for (const p of galleryPaths) {
+      const s = String(p ?? "").trim();
+      if (s) out.push(s);
+    }
+  }
+  if (product_imagesJson) {
+    try {
+      const parsed = JSON.parse(product_imagesJson) as unknown;
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const s = String(item ?? "").trim();
+          if (s) out.push(s);
+        }
+      }
+    } catch {
+      /* ignore invalid JSON */
+    }
+  }
+  return [...new Set(out)];
+}
+
+/** Metadata, category mapping, gallery rows — normalized schema side tables. */
+export async function saveProductV2Extras(productId: number, extras: ProductV2Extras): Promise<void> {
+  const subCatId = resolveSubcategoryIdForMapping(extras.cat_id, extras.sub_cat_id);
+  if (subCatId) {
+    const [existing] = await pool.query<RowDataPacket[]>(
+      `SELECT id FROM product_category_mappings WHERE product_id = :product_id LIMIT 1`,
+      { product_id: productId },
+    );
+    if (existing?.length) {
+      await pool.query(
+        `
+        UPDATE product_category_mappings
+        SET category_id = :category_id, is_primary = 1, status = 1
+        WHERE id = :id
+        `,
+        { category_id: subCatId, id: (existing[0] as RowDataPacket).id },
+      );
+    } else {
+      await pool.query(
+        `
+        INSERT INTO product_category_mappings (product_id, category_id, is_primary, status)
+        VALUES (:product_id, :category_id, 1, 1)
+        `,
+        { product_id: productId, category_id: subCatId },
+      );
+    }
+  }
+
+  await pool.query(
+    `
+    INSERT INTO product_metadata (product_id, about_product, product_information, fssai_license_number)
+    VALUES (:product_id, :about_product, :product_information, :fssai_license_number)
+    ON DUPLICATE KEY UPDATE
+      about_product = VALUES(about_product),
+      product_information = VALUES(product_information),
+      fssai_license_number = VALUES(fssai_license_number)
+    `,
+    {
+      product_id: productId,
+      about_product: extras.about_product ?? null,
+      product_information: extras.product_information ?? null,
+      fssai_license_number: extras.fssai_lic ?? null,
+    },
+  );
+
+  const paths = parseGalleryPaths(extras.product_images, extras.galleryPaths);
+  if (extras.replaceGalleryImages && paths.length > 0) {
+    await pool.query(`DELETE FROM product_images WHERE product_id = :product_id`, { product_id: productId });
+  }
+  for (let i = 0; i < paths.length; i++) {
+    await pool.query(
+      `
+      INSERT INTO product_images (product_id, image_url, display_order, is_active)
+      VALUES (:product_id, :image_url, :display_order, 1)
+      `,
+      { product_id: productId, image_url: paths[i], display_order: i },
+    );
+  }
+}
+
+export async function insertProductV2(
+  storeIdNum: number,
+  core: ProductV2CoreInsert,
+  extras: ProductV2Extras,
+): Promise<number> {
+  const [result] = await pool.query<ResultSetHeader>(
+    `
+    INSERT INTO products (
+      store_id, name, primary_image_url, description, status,
+      is_loose_product, approval_status, is_deleted
+    )
+    VALUES (
+      :store_id, :title, :img, :description, :status,
+      :is_loose_product, :approval_status, 0
+    )
+    `,
+    {
+      store_id: storeIdNum,
+      title: core.title,
+      img: core.img,
+      description: core.description,
+      status: core.status,
+      is_loose_product: core.is_loose_product ?? 0,
+      approval_status: core.approval_status ?? "approved",
+    } as any,
+  );
+  const productId = Number(result.insertId);
+  await saveProductV2Extras(productId, extras);
+  return productId;
+}
+
+export async function updateProductV2Row(
+  productId: number,
+  storeIdNum: number,
+  core: ProductV2CoreInsert,
+  extras: ProductV2Extras,
+): Promise<void> {
+  await pool.query(
+    `
+    UPDATE products
+    SET
+      primary_image_url = :img,
+      status = :status,
+      description = :description,
+      name = :title
+    WHERE id = :product_id AND store_id = :store_id
+    `,
+    {
+      product_id: productId,
+      store_id: storeIdNum,
+      title: core.title,
+      img: core.img,
+      description: core.description,
+      status: core.status,
+    } as any,
+  );
+  await saveProductV2Extras(productId, extras);
+}
+
+export async function insertVariantInventoryV2(
+  productId: number,
+  variantId: number,
+  opts: { available_quantity?: number; is_out_of_stock: number },
+): Promise<void> {
+  const qty = opts.available_quantity ?? (opts.is_out_of_stock ? 0 : 1);
+  await pool.query(
+    `
+    INSERT INTO product_inventory (product_id, variant_id, available_quantity, is_out_of_stock)
+    VALUES (:product_id, :variant_id, :available_quantity, :is_out_of_stock)
+    `,
+    {
+      product_id: productId,
+      variant_id: variantId,
+      available_quantity: qty,
+      is_out_of_stock: opts.is_out_of_stock,
+    } as any,
+  );
+}
+
+export function resolveVariantStockFromAttr(attr: Record<string, unknown>): {
+  available_quantity: number;
+  is_out_of_stock: number;
+} {
+  const mstockRaw = String(attr?.mstock ?? "1").trim();
+  const mstockNum = Number(mstockRaw);
+  const is_out_of_stock = mstockRaw === "0" ? 1 : 0;
+  const available_quantity =
+    Number.isFinite(mstockNum) && mstockNum > 0 ? Math.floor(mstockNum) : is_out_of_stock ? 0 : 1;
+  return { available_quantity, is_out_of_stock };
 }

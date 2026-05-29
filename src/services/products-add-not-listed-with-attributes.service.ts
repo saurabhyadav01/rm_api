@@ -15,6 +15,12 @@ import {
   toAboutProductString,
   toProductInformationString,
 } from "./products-with-attributes.shared";
+import {
+  insertProductV2,
+  insertVariantInventoryV2,
+  resolveVariantStockFromAttr,
+  type ProductV2Extras,
+} from "./product-v2.shared";
 
 type StorePlanRow = RowDataPacket & { plan_id: number | string | null };
 type PlanRow = RowDataPacket & {
@@ -89,41 +95,19 @@ async function insertProductNotListedLegacy(
   return Number(result.insertId);
 }
 
-/** v2: `products` + `product_variants` (same DB as hellochotu_microservices cart). */
-async function insertProductNotListedV2(
+function toProductV2Extras(
   fields: ReturnType<typeof buildNotListedFields>,
-  storeIdNum: number,
-): Promise<number> {
-  const [result] = await pool.query<ResultSetHeader>(
-    `
-    INSERT INTO products (
-      store_id, name, primary_image_url, description, status,
-      is_loose_product, approval_status, is_deleted,
-      cat_id, sub_cat_id, product_images, about_product, product_information, fssai_lic
-    )
-    VALUES (
-      :store_id, :title, :img, :description, :status,
-      :loose_product, :approval_status, 0,
-      :cat_id, :sub_cat_id, :product_images, :about_product, :product_information, :fssai_lic
-    )
-    `,
-    {
-      store_id: storeIdNum,
-      title: fields.title,
-      img: fields.img,
-      description: fields.description,
-      status: Number(fields.status) || 0,
-      loose_product: 1,
-      approval_status: "pending",
-      cat_id: fields.cat_id,
-      sub_cat_id: fields.sub_cat_id,
-      product_images: fields.product_images,
-      about_product: fields.about_product,
-      product_information: fields.product_information,
-      fssai_lic: fields.fssai_lic,
-    } as any,
-  );
-  return Number(result.insertId);
+  galleryPaths: string[],
+): ProductV2Extras {
+  return {
+    cat_id: fields.cat_id,
+    sub_cat_id: fields.sub_cat_id,
+    about_product: fields.about_product,
+    product_information: fields.product_information,
+    fssai_lic: fields.fssai_lic,
+    product_images: fields.product_images,
+    galleryPaths,
+  };
 }
 
 async function insertAttributeNotListedLegacy(
@@ -313,7 +297,18 @@ export async function productsAddNotListedWithAttributesService(
   let product_id = 0;
   try {
     product_id = useProductSchemaV2()
-      ? await insertProductNotListedV2(fields, storeIdNum)
+      ? await insertProductV2(
+          storeIdNum,
+          {
+            title: fields.title,
+            img: fields.img,
+            description: fields.description,
+            status: Number(fields.status) || 0,
+            is_loose_product: 1,
+            approval_status: "pending",
+          },
+          toProductV2Extras(fields, productImages),
+        )
       : await insertProductNotListedLegacy(fields, store_id);
   } catch (e) {
     try {

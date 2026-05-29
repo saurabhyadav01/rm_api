@@ -13,6 +13,13 @@ import {
   toProductInformationString,
   isHttpUrl,
 } from "./products-with-attributes.shared";
+import {
+  insertVariantInventoryV2,
+  resolveVariantStockFromAttr,
+  updateProductV2Row,
+  type ProductV2Extras,
+} from "./product-v2.shared";
+import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 type ProductRow = RowDataPacket & { id: number; store_id: number };
@@ -85,29 +92,20 @@ async function updateProductLegacy(
   );
 }
 
-async function updateProductV2(
-  product_id: number,
-  store_id: string,
+function toProductV2Extras(
   fields: ReturnType<typeof buildProductFields>,
-) {
-  await pool.query(
-    `
-    UPDATE products
-    SET
-      primary_image_url = :img,
-      status = :status,
-      description = :description,
-      name = :title,
-      cat_id = :cat_id,
-      sub_cat_id = :sub_cat_id,
-      product_images = :product_images,
-      about_product = :about_product,
-      product_information = :product_information,
-      fssai_lic = :fssai_lic
-    WHERE id = :product_id AND store_id = :store_id
-    `,
-    { ...fields, product_id, store_id } as any,
-  );
+  galleryPaths: string[],
+): ProductV2Extras {
+  return {
+    cat_id: fields.cat_id,
+    sub_cat_id: fields.sub_cat_id,
+    about_product: fields.about_product,
+    product_information: fields.product_information,
+    fssai_lic: fields.fssai_lic,
+    product_images: fields.product_images,
+    galleryPaths,
+    replaceGalleryImages: true,
+  };
 }
 
 async function upsertAttributeLegacy(
@@ -266,18 +264,8 @@ async function upsertAttributeV2(
     } as any,
   );
 
-  await pool.query(
-    `
-    INSERT INTO product_inventory (product_id, variant_id, store_id, is_out_of_stock)
-    VALUES (:product_id, :variant_id, :store_id, :is_out_of_stock)
-    `,
-    {
-      product_id,
-      variant_id: variantId,
-      store_id: storeIdNum,
-      is_out_of_stock: pricing.isOutOfStock,
-    } as any,
-  );
+  const stock = resolveVariantStockFromAttr(attr);
+  await insertVariantInventoryV2(product_id, variantId, stock);
 
   return variantId;
 }
@@ -294,13 +282,14 @@ export async function productsUpdateWithAttributesService(data: Record<string, u
 
   const product_id = Number(s(data.product_id));
   const store_id = s(data.store_id);
+  const storeIdNum = (await resolveStoreNumericId(store_id)) ?? Number(store_id);
 
   const productTable = useProductSchemaV2() ? "products" : "tbl_product";
   const deletedCol = useProductSchemaV2() ? "(is_deleted = 0 OR is_deleted IS NULL)" : "(is_delete = 0 OR is_delete IS NULL)";
 
   const [existing] = await pool.query<ProductRow[]>(
     `SELECT id, store_id FROM ${productTable} WHERE id = :product_id AND store_id = :store_id AND ${deletedCol} LIMIT 1`,
-    { product_id, store_id } as any,
+    { product_id, store_id: storeIdNum } as any,
   );
 
   if (!existing?.length) {
@@ -335,7 +324,17 @@ export async function productsUpdateWithAttributesService(data: Record<string, u
 
   try {
     if (useProductSchemaV2()) {
-      await updateProductV2(product_id, store_id, fields);
+      await updateProductV2Row(
+        product_id,
+        storeIdNum,
+        {
+          title: fields.title,
+          img: fields.img,
+          description: fields.description,
+          status: Number(fields.status) || 1,
+        },
+        toProductV2Extras(fields, productImages),
+      );
     } else {
       await updateProductLegacy(product_id, store_id, fields);
     }

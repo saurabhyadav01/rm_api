@@ -15,6 +15,12 @@ import {
   toAboutProductString,
   toProductInformationString,
 } from "./products-with-attributes.shared";
+import {
+  insertProductV2,
+  insertVariantInventoryV2,
+  resolveVariantStockFromAttr,
+  type ProductV2Extras,
+} from "./product-v2.shared";
 
 type StorePlanRow = RowDataPacket & { plan_id: number | string | null };
 type PlanRow = RowDataPacket & {
@@ -59,38 +65,19 @@ function buildListedProductFields(data: Record<string, unknown>, mainImagePath: 
   };
 }
 
-async function insertProductListed(
+function toProductV2Extras(
   fields: ReturnType<typeof buildListedProductFields>,
-  storeIdNum: number,
-): Promise<number> {
-  const [result] = await pool.query<ResultSetHeader>(
-    `
-    INSERT INTO products (
-      store_id, name, primary_image_url, description, status,
-      is_loose_product, is_deleted,
-      cat_id, sub_cat_id, product_images, about_product, product_information, fssai_lic
-    )
-    VALUES (
-      :store_id, :title, :img, :description, :status,
-      0, 0,
-      :cat_id, :sub_cat_id, :product_images, :about_product, :product_information, :fssai_lic
-    )
-    `,
-    {
-      store_id: storeIdNum,
-      title: fields.title,
-      img: fields.img,
-      description: fields.description,
-      status: Number(fields.status) || 1,
-      cat_id: fields.cat_id,
-      sub_cat_id: fields.sub_cat_id,
-      product_images: fields.product_images,
-      about_product: fields.about_product,
-      product_information: fields.product_information,
-      fssai_lic: fields.fssai_lic,
-    } as any,
-  );
-  return Number(result.insertId);
+  galleryPaths: string[],
+): ProductV2Extras {
+  return {
+    cat_id: fields.cat_id,
+    sub_cat_id: fields.sub_cat_id,
+    about_product: fields.about_product,
+    product_information: fields.product_information,
+    fssai_lic: fields.fssai_lic,
+    product_images: fields.product_images,
+    galleryPaths,
+  };
 }
 
 async function insertAttributeListed(
@@ -130,18 +117,8 @@ async function insertAttributeListed(
     } as any,
   );
 
-  await pool.query(
-    `
-    INSERT INTO product_inventory (product_id, variant_id, store_id, is_out_of_stock)
-    VALUES (:product_id, :variant_id, :store_id, :is_out_of_stock)
-    `,
-    {
-      product_id,
-      variant_id: variantId,
-      store_id: storeIdNum,
-      is_out_of_stock: pricing.isOutOfStock,
-    } as any,
-  );
+  const stock = resolveVariantStockFromAttr(attr);
+  await insertVariantInventoryV2(product_id, variantId, stock);
 
   return variantId;
 }
@@ -243,7 +220,18 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
 
   let product_id = 0;
   try {
-    product_id = await insertProductListed(fields, storeIdNum);
+    product_id = await insertProductV2(
+      storeIdNum,
+      {
+        title: fields.title,
+        img: fields.img,
+        description: fields.description,
+        status: Number(fields.status) || 1,
+        is_loose_product: 0,
+        approval_status: "approved",
+      },
+      toProductV2Extras(fields, productImages),
+    );
   } catch (e) {
     try {
       if (mainResolved.absPath) await fs.unlink(mainResolved.absPath);
