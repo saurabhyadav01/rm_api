@@ -218,6 +218,9 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
   }
 
   return {
+    ResponseCode: "200",
+    Result: "true",
+    ResponseMsg: "Product List with Multiple Attributes Loaded Successfully!",
     productdata: productList,
     page,
     limit,
@@ -225,9 +228,6 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
     product_count,
     attribute_total,
     total_pages: limit > 0 ? Math.ceil(product_count / limit) : 0,
-    ResponseCode: "200",
-    Result: "true",
-    ResponseMsg: "Product List with Multiple Attributes Loaded Successfully!",
   };
 }
 
@@ -398,6 +398,9 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
   }
 
   return {
+    ResponseCode: "200",
+    Result: "true",
+    ResponseMsg: "Product List with Multiple Attributes Loaded Successfully!",
     productdata: productList,
     page,
     limit,
@@ -405,9 +408,6 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     product_count,
     attribute_total,
     total_pages: limit > 0 ? Math.ceil(product_count / limit) : 0,
-    ResponseCode: "200",
-    Result: "true",
-    ResponseMsg: "Product List with Multiple Attributes Loaded Successfully!",
   };
 }
 
