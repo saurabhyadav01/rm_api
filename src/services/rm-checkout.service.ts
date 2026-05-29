@@ -45,7 +45,8 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
 
   const rm_id = s(data.rm_id);
   const store_id = s(data.store_id);
-  const store_type = resolveStoreType(store_id);
+  const store_type = s(data.store_type) !== "" ? s(data.store_type) : resolveStoreType(store_id);
+  const checkout_type = s(data.checkout_type) !== "" ? s(data.checkout_type) : "manual";
 
   const { current_date, current_time, current_date_time } = nowParts();
 
@@ -97,6 +98,7 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         store_id,
         checkin_date_time,
         checkout_date_time,
+        checkout_type,
         status,
         current_date_time,
         checkin_latitude,
@@ -104,7 +106,8 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         checkin_location,
         checkout_latitude,
         checkout_longitude,
-        checkout_location
+        checkout_location,
+        store_type
       )
       VALUES
       (
@@ -112,6 +115,7 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         :store_id,
         :checkin_date_time,
         :checkout_date_time,
+        :checkout_type,
         :status,
         :current_date_time,
         :checkin_latitude,
@@ -119,7 +123,8 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         :checkin_location,
         :checkout_latitude,
         :checkout_longitude,
-        :checkout_location
+        :checkout_location,
+        :store_type
       )
       `,
       {
@@ -127,6 +132,7 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         store_id,
         checkin_date_time,
         checkout_date_time,
+        checkout_type,
         status,
         current_date_time,
         checkin_latitude,
@@ -149,6 +155,7 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
       rm_id,
       store_id,
       store_type,
+      checkout_type,
       checkin_date_time,
       checkin_date,
       checkin_time,
