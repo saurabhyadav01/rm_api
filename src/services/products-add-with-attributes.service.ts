@@ -1,6 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { pool } from "../db/mysql";
+import { useStoresTable } from "../config/schema";
+import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -225,9 +227,15 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
   type PlanRow = RowDataPacket & { id: number; product_limit: number; plan_title: string | null; price: string | number | null };
   type ProductCountRow = RowDataPacket & { total: number };
 
-  const storeIdNum = Number(s(data.store_id));
+  const storeIdNum = (await resolveStoreNumericId(data.store_id)) ?? Number(s(data.store_id));
+  if (!storeIdNum) {
+    return { ResponseCode: "401", Result: "false", ResponseMsg: "Invalid store_id" };
+  }
+
+  const planCol = useStoresTable() ? "subscription_plan_id" : "plan_id";
+  const planTable = useStoresTable() ? "stores" : "service_details";
   const [spRows] = await pool.query<StorePlanRow[]>(
-    "SELECT plan_id FROM service_details WHERE id = :id LIMIT 1",
+    `SELECT ${planCol} AS plan_id FROM ${planTable} WHERE id = :id LIMIT 1`,
     { id: storeIdNum } as any,
   );
   const plan_id = spRows?.[0]?.plan_id ? Number(spRows[0].plan_id) : 1;

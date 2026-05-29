@@ -150,7 +150,7 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
     return {
       ResponseCode: "401",
       Result: "false",
-      ResponseMsg: "Invalid store_id. Use numeric service_details.id or public store code (e.g. RM20251226024).",
+      ResponseMsg: "Invalid store_id. Use stores.id or store_code (e.g. RM20251226024).",
     };
   }
   let page = data && data.page !== undefined ? toInt(data.page, 1) : 1;
@@ -258,7 +258,7 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     return {
       ResponseCode: "401",
       Result: "false",
-      ResponseMsg: "Invalid store_id. Use numeric service_details.id or public store code (e.g. RM20251226024).",
+      ResponseMsg: "Invalid store_id. Use stores.id or store_code (e.g. RM20251226024).",
     };
   }
 

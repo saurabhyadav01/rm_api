@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { useStoresTable } from "../config/schema";
 import { resolveOnboardingPlan } from "./plan.service";
 import { sendOnboardingMessages } from "./sms.service";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
@@ -115,6 +116,17 @@ function buildTimeSlots(openTime: string, closeTime: string, breakStart?: string
 }
 
 export async function storeOnboardingService(data: Record<string, unknown>): Promise<ServiceResult> {
+  if (useStoresTable()) {
+    return {
+      httpStatus: 501,
+      body: {
+        success: false,
+        message:
+          "Store onboard on production DB uses stores/* tables. Use HelloChotu panel/store service until RM onboard is migrated.",
+      },
+    };
+  }
+
   normalizeBusinessName(data);
 
   // Defaults

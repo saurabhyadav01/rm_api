@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { useStoresTable } from "../config/schema";
 import { type RowDataPacket } from "mysql2/promise";
 
 type StoreIdRow = RowDataPacket & { id: number };
@@ -7,56 +8,68 @@ function s(v: unknown) {
   return String(v ?? "").trim();
 }
 
+/** hellochotu_microservices `stores` table (production DB). */
+async function resolveFromStoresTable(raw: string): Promise<number | null> {
+  const params: Record<string, unknown> = { raw };
+  let idMatch = "";
+  if (/^\d+$/.test(raw)) {
+    idMatch = "OR s.id = :numId";
+    params.numId = Number(raw);
+  }
+
+  const [rows] = await pool.query<StoreIdRow[]>(
+    `
+    SELECT s.id
+    FROM stores s
+    WHERE (s.is_deleted = 0 OR s.is_deleted IS NULL)
+      AND (
+        s.store_code = :raw
+        OR CAST(s.id AS CHAR) = :raw
+        ${idMatch}
+      )
+    LIMIT 1
+    `,
+    params as any,
+  );
+
+  return rows?.[0]?.id ? Number(rows[0].id) : null;
+}
+
+/** Legacy DB only (RM_SCHEMA_V2=false). */
+async function resolveFromServiceDetails(raw: string): Promise<number | null> {
+  const params: Record<string, unknown> = { raw };
+  let idMatch = "";
+  if (/^\d+$/.test(raw)) {
+    idMatch = "OR id = :numId";
+    params.numId = Number(raw);
+  }
+
+  const [rows] = await pool.query<StoreIdRow[]>(
+    `
+    SELECT id
+    FROM service_details
+    WHERE store_id = :raw
+       OR CAST(id AS CHAR) = :raw
+       ${idMatch}
+    LIMIT 1
+    `,
+    params as any,
+  );
+
+  return rows?.[0]?.id ? Number(rows[0].id) : null;
+}
+
 /**
- * Resolves mobile/RM store code (e.g. RM20251226024) or numeric id
- * to service_details.id used by products.store_id / tbl_product.store_id.
+ * Resolves store code (RM…) or numeric id → `stores.id` (v2) / `service_details.id` (legacy).
+ * Used as `products.store_id` foreign key.
  */
 export async function resolveStoreNumericId(storeIdRaw: unknown): Promise<number | null> {
   const raw = s(storeIdRaw);
   if (!raw) return null;
 
-  if (/^\d+$/.test(raw)) {
-    const n = Number(raw);
-    const [byPk] = await pool.query<StoreIdRow[]>(
-      "SELECT id FROM service_details WHERE id = :id LIMIT 1",
-      { id: n } as any,
-    );
-    if (byPk?.[0]?.id) return Number(byPk[0].id);
+  if (useStoresTable()) {
+    return resolveFromStoresTable(raw);
   }
 
-  // Public store code on service_details.store_id (RM… / ST…)
-  const [byPublicId] = await pool.query<StoreIdRow[]>(
-    `
-    SELECT id FROM service_details
-    WHERE store_id = :raw
-       OR CAST(id AS CHAR) = :raw
-    LIMIT 1
-    `,
-    { raw } as any,
-  );
-  if (byPublicId?.[0]?.id) return Number(byPublicId[0].id);
-
-  // Newer schema: store_code column (if present)
-  try {
-    const [byCode] = await pool.query<StoreIdRow[]>(
-      "SELECT id FROM service_details WHERE store_code = :raw LIMIT 1",
-      { raw } as any,
-    );
-    if (byCode?.[0]?.id) return Number(byCode[0].id);
-  } catch {
-    // column may not exist on legacy DB
-  }
-
-  // Normalized stores table (if service_details migrated)
-  try {
-    const [byStores] = await pool.query<StoreIdRow[]>(
-      "SELECT id FROM stores WHERE store_code = :raw OR CAST(id AS CHAR) = :raw LIMIT 1",
-      { raw } as any,
-    );
-    if (byStores?.[0]?.id) return Number(byStores[0].id);
-  } catch {
-    // table may not exist
-  }
-
-  return null;
+  return resolveFromServiceDetails(raw);
 }

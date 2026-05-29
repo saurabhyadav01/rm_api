@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { useStoresTable } from "../config/schema";
 import {
   buildServiceDetailsFields,
   buildStoreImageFiles,
@@ -12,6 +13,17 @@ type ServiceResult = { httpStatus: number; body: Record<string, unknown> };
 type ExistingRow = RowDataPacket & { id: number };
 
 export async function storeUpdateService(data: Record<string, unknown>): Promise<ServiceResult> {
+  if (useStoresTable()) {
+    return {
+      httpStatus: 501,
+      body: {
+        success: false,
+        message:
+          "Store update on production DB uses stores/* tables. Use HelloChotu panel/store service until RM update is migrated.",
+      },
+    };
+  }
+
   normalizeStoreInput(data);
 
   if (!s(data.mobile)) {

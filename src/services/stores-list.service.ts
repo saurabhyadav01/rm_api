@@ -1,5 +1,5 @@
 import { pool } from "../db/mysql";
-import { useProductSchemaV2 } from "../config/schema";
+import { useProductSchemaV2, useStoresTable } from "../config/schema";
 import { type RowDataPacket } from "mysql2/promise";
 
 export type StoresListInput = {
@@ -373,6 +373,222 @@ function mapStoreRow(row: StoreRow, ps: ProductStats | null) {
   };
 }
 
+/** hellochotu_microservices `stores` + related tables (no service_details). */
+async function storesListFromStoresTable(input: StoresListInput): Promise<ServiceResult> {
+  const rm_id = s(input.rm_id);
+  const page = toPage(input.page);
+  const limit = toLimit(input.limit);
+  const offset = (page - 1) * limit;
+  const includeProductCounts = includeProductCountsFlag(input.include_product_counts);
+
+  const whereParts: string[] = [
+    `(CONVERT(CAST(s.regional_manager_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci) = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)`,
+    `(s.is_deleted = 0 OR s.is_deleted IS NULL)`,
+  ];
+  const params: Record<string, unknown> = { rm_id };
+
+  const start_date = s(input.start_date);
+  if (start_date) {
+    whereParts.push("s.created_at >= :start_date");
+    params.start_date = `${start_date} 00:00:00`;
+  }
+
+  const end_date = s(input.end_date);
+  if (end_date) {
+    whereParts.push("s.created_at <= :end_date");
+    params.end_date = `${end_date} 23:59:59`;
+  }
+
+  const status = s(input.status);
+  if (status) {
+    whereParts.push("s.status = :status");
+    params.status = status;
+  }
+
+  const business_type = s(input.business_type);
+  if (business_type) {
+    whereParts.push("s.location_code LIKE :business_type");
+    params.business_type = `%${business_type}%`;
+  }
+
+  const keyword = s(input.keyword);
+  if (keyword) {
+    whereParts.push("(s.name LIKE :kw OR sc.phone_number LIKE :kw OR sc.email LIKE :kw)");
+    params.kw = `%${keyword}%`;
+  }
+
+  const whereClause = whereParts.join(" AND ");
+
+  try {
+    const [countRows] = await pool.query<CountRow[]>(
+      `SELECT COUNT(*) AS total FROM stores s
+       LEFT JOIN store_credentials sc ON sc.store_id = s.id
+       WHERE ${whereClause}`,
+      params as any,
+    );
+    const totalRecords = Number(countRows?.[0]?.total ?? 0);
+    const totalPages = limit > 0 ? Math.ceil(totalRecords / limit) : 0;
+
+    const [onboardedRows] = await pool.query<CountRow[]>(
+      `
+      SELECT COUNT(*) AS total FROM stores s
+      WHERE (s.is_deleted = 0 OR s.is_deleted IS NULL)
+        AND (CONVERT(CAST(s.regional_manager_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+          = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+      `,
+      { rm_id } as any,
+    );
+    const onboardedCount = Number(onboardedRows?.[0]?.total ?? 0);
+
+    const [nonOnboardedRows] = await pool.query<CountRow[]>(
+      `
+      SELECT COUNT(*) AS total FROM non_onboarded_store
+      WHERE is_deleted = 0
+        AND (CONVERT(CAST(rm_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+          = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+      `,
+      { rm_id } as any,
+    );
+    const nonOnboardedCount = Number(nonOnboardedRows?.[0]?.total ?? 0);
+
+    const counts: Record<string, string> = {
+      onboarded_count: String(onboardedCount),
+      non_onboarded_count: String(nonOnboardedCount),
+      total_count: String(onboardedCount + nonOnboardedCount),
+    };
+
+    const [rows] = await pool.query<StoreRow[]>(
+      `
+      SELECT
+        s.id,
+        s.name AS business_name,
+        sc.email,
+        sc.phone_number AS mobile,
+        CONCAT_WS(', ', NULLIF(sa.address_line_1, ''), NULLIF(sa.city, ''), NULLIF(sa.postal_code, '')) AS full_address,
+        sa.postal_code AS pincode,
+        s.location_code AS business_type,
+        s.category_ids,
+        soh.opening_time AS opentime,
+        soh.closing_time AS closetime,
+        sa.landmark,
+        CAST(sa.latitude AS CHAR) AS latitude,
+        CAST(sa.longitude AS CHAR) AS longitude,
+        s.zone_id,
+        spm.bank_name,
+        sa.street,
+        sa.area,
+        sa.city,
+        sa.state,
+        spm.ifsc_code AS ifsc,
+        spm.account_holder_name,
+        spm.account_number,
+        spm.upi_id AS transaction_id,
+        s.status,
+        s.status AS rstatus,
+        s.rating AS rate,
+        NULL AS commission,
+        s.logo_url AS store_banner,
+        s.banner_url AS cover_image_url,
+        s.regional_manager_id AS rm_id,
+        s.regional_aggregator_id AS ra_id,
+        s.franchisee_id AS fr_id,
+        s.subscription_plan_id AS plan_id,
+        NULL AS plan_title,
+        NULL AS plan_price,
+        NULL AS plan_product_limit,
+        NULL AS plan_description,
+        s.tagline AS slogan,
+        NULL AS slogan_title,
+        s.short_description AS tags,
+        s.description,
+        s.cancellation_policy AS cancle_policy,
+        NULL AS base_distance,
+        NULL AS base_charge,
+        NULL AS extra_charge,
+        NULL AS remark,
+        s.owner_name,
+        soh.break_start_time,
+        soh.break_end_time,
+        NULL AS aadhar_back,
+        s.referral_code AS refercode,
+        s.store_code AS non_onboarded_store_id,
+        NULL AS non_onboarded_date,
+        s.created_at AS created_at
+      FROM stores s
+      LEFT JOIN store_credentials sc ON sc.store_id = s.id
+      LEFT JOIN store_addresses sa ON sa.store_id = s.id AND sa.is_default = 1
+        AND (sa.is_deleted = 0 OR sa.is_deleted IS NULL)
+      LEFT JOIN store_operating_hours soh ON soh.store_id = s.id
+      LEFT JOIN store_payment_methods spm ON spm.store_id = s.id AND spm.is_primary = 1
+        AND (spm.is_deleted = 0 OR spm.is_deleted IS NULL)
+      WHERE ${whereClause}
+      ORDER BY s.id DESC
+      LIMIT :limit OFFSET :offset
+      `,
+      { ...params, limit, offset } as any,
+    );
+
+    const storeIds: number[] = [];
+    if (includeProductCounts) {
+      for (const row of rows ?? []) storeIds.push(Number(row.id));
+    }
+
+    const productStats = includeProductCounts ? await fetchProductStatsV2(storeIds) : {};
+    const stores = (rows ?? []).map((row) => {
+      const mapped = mapStoreRow(row, productStats[Number(row.id)] ?? null);
+      mapped.store_type = "onboard_store";
+      mapped.non_onboarded_store_id = null;
+      return mapped;
+    });
+
+    let pageVariantTotal = 0;
+    let pagePendingTotal = 0;
+    let pageApprovedTotal = 0;
+    for (const store of stores) {
+      pageVariantTotal += Number(store.total ?? 0);
+      pagePendingTotal += Number(store.pending_count ?? 0);
+      pageApprovedTotal += Number(store.approved_count ?? 0);
+    }
+
+    counts.total = String(pageVariantTotal);
+    counts.product_count = String(pageVariantTotal);
+    counts.pending_count = String(pagePendingTotal);
+    counts.approved_count = String(pageApprovedTotal);
+
+    return {
+      httpStatus: 200,
+      body: {
+        success: true,
+        ResponseCode: "200",
+        Result: "true",
+        ResponseMsg:
+          stores.length > 0
+            ? "Store onboarding history retrieved successfully"
+            : "No stores found for this RM ID",
+        pagination: { total_records: totalRecords, total_pages: totalPages, current_page: page, limit },
+        counts,
+        total: String(pageVariantTotal),
+        product_count: String(pageVariantTotal),
+        pending_count: String(pagePendingTotal),
+        approved_count: String(pageApprovedTotal),
+        total_stores: stores.length,
+        stores,
+      },
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      httpStatus: 500,
+      body: {
+        success: false,
+        ResponseCode: "500",
+        Result: "false",
+        ResponseMsg: `Database error: ${msg}`,
+      },
+    };
+  }
+}
+
 export async function storesListService(input: StoresListInput): Promise<ServiceResult> {
   const rm_id = s(input.rm_id);
   if (!rm_id) {
@@ -385,6 +601,10 @@ export async function storesListService(input: StoresListInput): Promise<Service
         ResponseMsg: "RM ID is required",
       },
     };
+  }
+
+  if (useStoresTable()) {
+    return storesListFromStoresTable(input);
   }
 
   const page = toPage(input.page);
