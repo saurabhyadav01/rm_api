@@ -12,6 +12,7 @@ warnIfLegacyImagesDirMissing();
 import { createApp } from "./app";
 import { getApiBaseUrl } from "./config/public-url";
 import { getApiVersion } from "./config/version";
+import { useProductSchemaV2 } from "./config/schema";
 
 const port = Number(process.env.PORT ?? 4001);
 const app = createApp();
@@ -32,4 +33,8 @@ app.listen(port, () => {
   console.log(`[rm] uploads dir: ${getUploadsRootDir()}`);
   // eslint-disable-next-line no-console
   console.log(`[rm] legacy images dir: ${getLegacyImagesRootDir()}`);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[rm] product tables: ${useProductSchemaV2() ? "v2 (products, product_variants)" : "legacy (tbl_product)"}`,
+  );
 });

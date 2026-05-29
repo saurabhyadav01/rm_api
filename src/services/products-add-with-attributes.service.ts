@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import { pool } from "../db/mysql";
-import { useProductSchemaV2, useStoresTable } from "../config/schema";
+import { useStoresTable } from "../config/schema";
 import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 import {
@@ -59,33 +59,7 @@ function buildListedProductFields(data: Record<string, unknown>, mainImagePath: 
   };
 }
 
-async function insertProductListedLegacy(
-  fields: ReturnType<typeof buildListedProductFields>,
-  store_id: string,
-): Promise<number> {
-  const columns = [
-    "img",
-    "status",
-    "store_id",
-    "description",
-    "title",
-    "cat_id",
-    "sub_cat_id",
-    "product_images",
-    "about_product",
-    "product_information",
-    "fssai_lic",
-  ];
-  const params = { ...fields, store_id };
-  const placeholders = columns.map((c) => `:${c}`).join(", ");
-  const [result] = await pool.query<ResultSetHeader>(
-    `INSERT INTO tbl_product (${columns.join(", ")}) VALUES (${placeholders})`,
-    params as any,
-  );
-  return Number(result.insertId);
-}
-
-async function insertProductListedV2(
+async function insertProductListed(
   fields: ReturnType<typeof buildListedProductFields>,
   storeIdNum: number,
 ): Promise<number> {
@@ -119,47 +93,7 @@ async function insertProductListedV2(
   return Number(result.insertId);
 }
 
-async function insertAttributeListedLegacy(
-  attr: Record<string, unknown>,
-  product_id: number,
-  store_id: string,
-  productImagePath: string,
-): Promise<number> {
-  const pricing = parseAttributePricing(attr);
-  const attr_image = await resolveAttrImage(attr, productImagePath);
-
-  const [result] = await pool.query<ResultSetHeader>(
-    `
-    INSERT INTO tbl_product_attribute
-    (
-      product_id, normal_price, title, discount, out_of_stock,
-      subscribe_price, subscription_required, store_id, attr_image,
-      discounted_price, status
-    )
-    VALUES
-    (
-      :product_id, :normal_price, :title, :discount, 0,
-      :subscribe_price, :subscription_required, :store_id, :attr_image,
-      :discounted_price, :status
-    )
-    `,
-    {
-      product_id,
-      normal_price: pricing.mprice,
-      title: pricing.mtype,
-      discount: String(pricing.flat_discount),
-      subscribe_price: pricing.sprice,
-      subscription_required: pricing.srequire,
-      store_id,
-      attr_image,
-      discounted_price: pricing.discounted_price,
-      status: pricing.status,
-    } as any,
-  );
-  return Number(result.insertId);
-}
-
-async function insertAttributeListedV2(
+async function insertAttributeListed(
   attr: Record<string, unknown>,
   product_id: number,
   storeIdNum: number,
@@ -250,13 +184,13 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
   const plan = planRows?.[0];
   const product_limit = plan?.product_limit ?? 0;
 
-  const productTable = useProductSchemaV2() ? "products" : "tbl_product";
-  const deletedCol = useProductSchemaV2()
-    ? "(is_deleted = 0 OR is_deleted IS NULL)"
-    : "(is_delete = 0 OR is_delete IS NULL)";
-
   const [cntRows] = await pool.query<ProductCountRow[]>(
-    `SELECT COUNT(*) AS total FROM ${productTable} WHERE store_id = :store_id AND ${deletedCol}`,
+    `
+    SELECT COUNT(*) AS total
+    FROM products
+    WHERE store_id = :store_id
+      AND (is_deleted = 0 OR is_deleted IS NULL)
+    `,
     { store_id: storeIdNum } as any,
   );
   const current_count = Number(cntRows?.[0]?.total ?? 0);
@@ -309,9 +243,7 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
 
   let product_id = 0;
   try {
-    product_id = useProductSchemaV2()
-      ? await insertProductListedV2(fields, storeIdNum)
-      : await insertProductListedLegacy(fields, store_id);
+    product_id = await insertProductListed(fields, storeIdNum);
   } catch (e) {
     try {
       if (mainResolved.absPath) await fs.unlink(mainResolved.absPath);
@@ -342,9 +274,7 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
   for (let index = 0; index < attributesInput.length; index++) {
     const attr = attributesInput[index];
     try {
-      const attribute_id = useProductSchemaV2()
-        ? await insertAttributeListedV2(attr, product_id, storeIdNum, mainResolved.relPath)
-        : await insertAttributeListedLegacy(attr, product_id, store_id, mainResolved.relPath);
+      const attribute_id = await insertAttributeListed(attr, product_id, storeIdNum, mainResolved.relPath);
 
       attribute_ids.push(attribute_id);
       attribute_results.push({
