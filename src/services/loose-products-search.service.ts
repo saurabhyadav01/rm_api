@@ -1,4 +1,6 @@
 import { pool } from "../db/mysql";
+import { useProductSchemaV2 } from "../config/schema";
+import { fetchVariantsByProductId, mapVariantToLegacyAttribute } from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -68,7 +70,80 @@ function parseProductInformation(v: unknown): Record<string, string> | null {
   return Object.keys(out).length ? out : null;
 }
 
+async function looseProductsSearchV2(data: any): Promise<Record<string, unknown>> {
+  const keyword = data && data.keyword !== undefined ? s(data.keyword) : "";
+  let page = data && data.page !== undefined ? toInt(data.page, 1) : 1;
+  if (page < 1) page = 1;
+  let limit = data && data.limit !== undefined ? toInt(data.limit, 20) : 20;
+  if (limit < 20) limit = 20;
+  const offset = (page - 1) * limit;
+
+  const whereParts = [
+    "(COALESCE(p.is_loose_product, 0) = 1)",
+    "(p.is_deleted = 0 OR p.is_deleted IS NULL)",
+  ];
+  const params: Record<string, unknown> = {};
+  if (keyword) {
+    whereParts.push("p.title LIKE :kw");
+    params.kw = `%${keyword}%`;
+  }
+  const whereClause = `WHERE ${whereParts.join(" AND ")}`;
+
+  const [countRows] = await pool.query<CountRow[]>(
+    `SELECT COUNT(*) AS total FROM products p ${whereClause}`,
+    params as any,
+  );
+  const total = Number(countRows?.[0]?.total ?? 0);
+
+  const [products] = await pool.query<ProductRow[]>(
+    `SELECT p.* FROM products p ${whereClause} ORDER BY p.id DESC LIMIT :offset, :limit`,
+    { ...params, offset, limit } as any,
+  );
+
+  const productList: any[] = [];
+  for (const product of products ?? []) {
+    const variants = await fetchVariantsByProductId(Number(product.id));
+    const attributes = variants
+      .sort((a, b) => Number(b.id) - Number(a.id))
+      .map((v) => mapVariantToLegacyAttribute(v, { includeId: true }));
+
+    productList.push({
+      id: product.id,
+      store_id: product.store_id,
+      cat_id: product.cat_id ?? product.category_id ?? null,
+      cat_name: null,
+      sub_cat_id: product.sub_cat_id ?? product.subcategory_id ?? null,
+      sub_cat_name: "",
+      title: cleanText(product.title),
+      loose_product: 1,
+      img: product.img ?? product.primary_image_url ?? "",
+      product_images: product.product_images ? JSON.parse(String(product.product_images)) : [],
+      description: cleanDescription(product.description),
+      status: product.status,
+      about_product: parseAboutProductLines(product.about_product),
+      product_information: parseProductInformation(product.product_information),
+      fssai_lic: product.fssai_lic ?? null,
+      attributes,
+    });
+  }
+
+  return {
+    productdata: productList,
+    page,
+    limit,
+    total,
+    total_pages: limit > 0 ? Math.ceil(total / limit) : 0,
+    ResponseCode: "200",
+    Result: "true",
+    ResponseMsg: "Products Searched Successfully!",
+  };
+}
+
 export async function looseProductsSearchService(data: any): Promise<Record<string, unknown>> {
+  if (useProductSchemaV2()) {
+    return looseProductsSearchV2(data);
+  }
+
   const keyword = data && data.keyword !== undefined ? s(data.keyword) : "";
 
   let page = data && data.page !== undefined ? toInt(data.page, 1) : 1;

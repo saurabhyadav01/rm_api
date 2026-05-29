@@ -1,4 +1,6 @@
 import { pool } from "../db/mysql";
+import { useProductSchemaV2 } from "../config/schema";
+import { fetchVariantsByProductId, mapVariantToLegacyAttribute } from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -128,7 +130,107 @@ function fmt0(n: number) {
   return n.toFixed(0);
 }
 
+async function productsListWithAttributesV2(data: any): Promise<Record<string, unknown>> {
+  const store_id_raw = data && data.store_id !== undefined ? s(data.store_id) : "";
+  if (!store_id_raw) {
+    return {
+      ResponseCode: "401",
+      Result: "false",
+      ResponseMsg: "Something Went Wrong! Store ID is required.",
+    };
+  }
+  const store_id = toInt(store_id_raw, 0);
+  let page = data && data.page !== undefined ? toInt(data.page, 1) : 1;
+  if (page < 1) page = 1;
+  let limit = data && data.limit !== undefined ? toInt(data.limit, 20) : 20;
+  if (limit < 20) limit = 20;
+  const offset = (page - 1) * limit;
+
+  const [pcRows] = await pool.query<CountRow[]>(
+    `
+    SELECT COUNT(*) AS product_count
+    FROM products p
+    WHERE p.store_id = :store_id
+      AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
+      AND (p.status = 1 OR p.status = '1')
+    `,
+    { store_id } as any,
+  );
+  const product_count = Number(pcRows?.[0]?.product_count ?? 0);
+
+  const [atRows] = await pool.query<CountRow[]>(
+    `
+    SELECT COUNT(*) AS attribute_total
+    FROM product_variants v
+    INNER JOIN products p ON p.id = v.product_id AND p.store_id = :store_id
+    WHERE (p.is_deleted = 0 OR p.is_deleted IS NULL)
+      AND (p.status = 1 OR p.status = '1')
+      AND (v.is_deleted = 0 OR v.is_deleted IS NULL)
+      AND v.deleted_at IS NULL
+    `,
+    { store_id } as any,
+  );
+  const attribute_total = Number(atRows?.[0]?.attribute_total ?? 0);
+
+  const [products] = await pool.query<ProductRow[]>(
+    `
+    SELECT p.*
+    FROM products p
+    WHERE p.store_id = :store_id
+      AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
+      AND (p.status = 1 OR p.status = '1')
+    ORDER BY p.id DESC
+    LIMIT :offset, :limit
+    `,
+    { store_id, offset, limit } as any,
+  );
+
+  const productList: any[] = [];
+  for (const product of products ?? []) {
+    const variants = await fetchVariantsByProductId(Number(product.id));
+    const attributes = variants
+      .sort((a, b) => Number(b.id) - Number(a.id))
+      .map((v) => mapVariantToLegacyAttribute(v, { includeId: true }));
+
+    productList.push({
+      id: product.id,
+      store_id: product.store_id,
+      loose_product: String(product.is_loose_product ?? "") === "1",
+      cat_id: product.cat_id ?? null,
+      cat_name: null,
+      sub_cat_id: product.sub_cat_id ?? null,
+      sub_cat_name: "",
+      title: cleanAggressive(product.title),
+      img: product.primary_image_url ?? product.img ?? "",
+      product_images: product.product_images ? JSON.parse(String(product.product_images)) : [],
+      description: cleanDescription(product.description),
+      status: product.status,
+      about_product: parseAboutProduct(product.about_product),
+      product_information: parseProductInformationFiltered(product.product_information),
+      fssai_lic: product.fssai_lic ?? null,
+      attributes,
+    });
+  }
+
+  return {
+    productdata: productList,
+    page,
+    limit,
+    total: attribute_total,
+    product_count,
+    attribute_total,
+    total_pages: limit > 0 ? Math.ceil(product_count / limit) : 0,
+    ResponseCode: "200",
+    Result: "true",
+    ResponseMsg: "Product List with Multiple Attributes Loaded Successfully!",
+  };
+}
+
 export async function productsListWithAttributesService(data: any): Promise<Record<string, unknown>> {
+  if (useProductSchemaV2()) {
+    return productsListWithAttributesV2(data);
+  }
+
   const store_id_raw = data && data.store_id !== undefined ? s(data.store_id) : "";
   if (!store_id_raw) {
     return {

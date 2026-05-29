@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { useProductSchemaV2 } from "../config/schema";
 import { type RowDataPacket } from "mysql2/promise";
 
 type Input = {
@@ -113,6 +114,31 @@ export async function storesListService(input: Input): Promise<ServiceResult> {
           = (CONVERT((${sdNosRef}) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
     `;
 
+    const productStatsSubquery = useProductSchemaV2()
+      ? `
+      LEFT JOIN (
+        SELECT
+          store_id,
+          COUNT(*) as product_count,
+          SUM(CASE WHEN LOWER(COALESCE(approval_status, '')) = 'pending' THEN 1 ELSE 0 END) as pending_count,
+          SUM(CASE WHEN LOWER(COALESCE(approval_status, '')) = 'approved' THEN 1 ELSE 0 END) as approved_count,
+          SUM(CASE WHEN COALESCE(is_loose_product, 0) = 1 THEN 1 ELSE 0 END) as loose_product_count
+        FROM products
+        WHERE (is_deleted = 0 OR is_deleted IS NULL)
+        GROUP BY store_id
+      ) p ON p.store_id = sd.id`
+      : `
+      LEFT JOIN (
+        SELECT
+          store_id,
+          COUNT(*) as product_count,
+          SUM(CASE WHEN LOWER(COALESCE(approval_status, '')) = 'pending' THEN 1 ELSE 0 END) as pending_count,
+          SUM(CASE WHEN LOWER(COALESCE(approval_status, '')) = 'approved' THEN 1 ELSE 0 END) as approved_count,
+          SUM(CASE WHEN loose_product = 1 THEN 1 ELSE 0 END) as loose_product_count
+        FROM tbl_product
+        GROUP BY store_id
+      ) p ON p.store_id = sd.id`;
+
     const [rows] = await pool.query<StoreRow[]>(
       `
       SELECT
@@ -179,16 +205,7 @@ export async function storesListService(input: Input): Promise<ServiceResult> {
         COALESCE(p.approved_count, 0) as approved_count,
         COALESCE(p.loose_product_count, 0) as loose_product_count
       FROM service_details sd
-      LEFT JOIN (
-        SELECT
-          store_id,
-          COUNT(*) as product_count,
-          SUM(CASE WHEN LOWER(COALESCE(approval_status, '')) = 'pending' THEN 1 ELSE 0 END) as pending_count,
-          SUM(CASE WHEN LOWER(COALESCE(approval_status, '')) = 'approved' THEN 1 ELSE 0 END) as approved_count,
-          SUM(CASE WHEN loose_product = 1 THEN 1 ELSE 0 END) as loose_product_count
-        FROM tbl_product
-        GROUP BY store_id
-      ) p ON p.store_id = sd.id
+      ${productStatsSubquery}
       WHERE ${whereClause}
       ORDER BY sd.id DESC
       LIMIT :limit OFFSET :offset

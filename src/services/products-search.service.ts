@@ -1,7 +1,7 @@
 import { pool } from "../db/mysql";
+import { useProductSchemaV2 } from "../config/schema";
+import { fetchVariantsByProductId, mapVariantToLegacyAttribute } from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
-
-const useV2 = String(process.env.RM_SCHEMA_V2 ?? "").toLowerCase() === "true";
 
 function s(v: unknown) {
   return String(v ?? "").trim();
@@ -58,7 +58,7 @@ function parseKeyValueLines(v: unknown): Record<string, string> | null {
 }
 
 export async function productsSearchService(data: any): Promise<Record<string, unknown>> {
-  if (useV2) {
+  if (useProductSchemaV2()) {
     // V2 tables: products, product_variants, product_inventory, product_pricing
     if (!data || typeof data !== "object" || Array.isArray(data)) {
       return { ResponseCode: "401", Result: "false", ResponseMsg: "Invalid JSON data provided!" };
@@ -121,46 +121,8 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       productData.product_information = parseKeyValueLines(product.product_information);
       productData.fssai_lic = product.fssai_lic ?? null;
 
-      type VariantRow = RowDataPacket & Record<string, any>;
-      const [variants] = await pool.query<VariantRow[]>(
-        `
-        SELECT
-          v.id,
-          v.product_id,
-          v.title,
-          v.subscription_required,
-          v.attr_image,
-          inv.out_of_stock,
-          pr.normal_price,
-          pr.subscribe_price,
-          pr.discount,
-          pr.discounted_price
-        FROM product_variants v
-        LEFT JOIN product_inventory inv ON inv.variant_id = v.id
-        LEFT JOIN product_pricing pr ON pr.variant_id = v.id
-        WHERE v.product_id = :product_id
-        ORDER BY v.id ASC
-        `,
-        { product_id: product.id } as any,
-      );
-
-      const attributes: any[] = [];
-      for (const v of variants ?? []) {
-        attributes.push({
-          attribute_id: String(v.id),
-          product_id: String(v.product_id),
-          normal_price: number_format(Number(v.normal_price ?? 0)),
-          subscribe_price: number_format(Number(v.subscribe_price ?? 0)),
-          title: cleanText(v.title),
-          product_discount_amt: number_format(Number(v.discount ?? 0)),
-          product_discount: number_format(Number(v.discount ?? 0)),
-          discounted_price: number_format(Number(v.discounted_price ?? 0)),
-          Product_Out_Stock: String(v.out_of_stock ?? ""),
-          subscription_required: String(v.subscription_required ?? ""),
-          attr_image: v.attr_image ?? "",
-          status: String(v.status ?? "1"),
-        });
-      }
+      const variants = await fetchVariantsByProductId(Number(product.id));
+      const attributes = variants.map((v) => mapVariantToLegacyAttribute(v));
       productData.attributes = attributes;
       productData.attribute_count = attributes.length;
 

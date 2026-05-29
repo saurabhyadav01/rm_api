@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { useProductSchemaV2 } from "../config/schema";
 import { type ResultSetHeader } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -18,14 +19,16 @@ export async function productsSoftDeleteService(data: any): Promise<Record<strin
     };
   }
 
-  // Check if product exists for this store and is not already deleted
+  const productTable = useProductSchemaV2() ? "products" : "tbl_product";
+  const deletedCol = useProductSchemaV2() ? "is_deleted" : "is_delete";
+
   const [rows] = await pool.query<any[]>(
     `
     SELECT id
-    FROM tbl_product
+    FROM ${productTable}
     WHERE id = :product_id
       AND store_id = :store_id
-      AND is_delete = 0
+      AND ${deletedCol} = 0
     LIMIT 1
     `,
     { product_id, store_id } as any,
@@ -42,8 +45,8 @@ export async function productsSoftDeleteService(data: any): Promise<Record<strin
   try {
     const [upd] = await pool.query<ResultSetHeader>(
       `
-      UPDATE tbl_product
-      SET status = 0, is_delete = 1
+      UPDATE ${productTable}
+      SET status = 0, ${deletedCol} = 1
       WHERE id = :product_id
         AND store_id = :store_id
       `,
@@ -58,14 +61,17 @@ export async function productsSoftDeleteService(data: any): Promise<Record<strin
       };
     }
 
-    // Log the deletion
-    await pool.query(
-      `
-      INSERT INTO tbl_delete_product_log (rm_id, store_id, product_id)
-      VALUES (:rm_id, :store_id, :product_id)
-      `,
-      { rm_id, store_id, product_id } as any,
-    );
+    try {
+      await pool.query(
+        `
+        INSERT INTO tbl_delete_product_log (rm_id, store_id, product_id)
+        VALUES (:rm_id, :store_id, :product_id)
+        `,
+        { rm_id, store_id, product_id } as any,
+      );
+    } catch {
+      // optional audit table — ignore if missing on v2 DB
+    }
 
     return {
       ResponseCode: "200",
