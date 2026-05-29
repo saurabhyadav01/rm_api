@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storesList } from "../controllers/stores-list.controller";
 import { storeOnboarding } from "../controllers/store-onboarding.controller";
+import { storeUpdate } from "../controllers/store-update.controller";
 
 export const storesRouter = Router();
 
@@ -30,4 +31,11 @@ const onboardPaths = ["/onboard", "/add", "/add-store"] as const;
 for (const path of onboardPaths) {
   storesRouter.options(path, (_req, res) => res.sendStatus(200));
   storesRouter.all(path, postOnlyGuard, storeOnboarding);
+}
+
+// Store update by mobile (PHP update store)
+const updatePaths = ["/update", "/update-store"] as const;
+for (const path of updatePaths) {
+  storesRouter.options(path, (_req, res) => res.sendStatus(200));
+  storesRouter.all(path, postOnlyGuard, storeUpdate);
 }

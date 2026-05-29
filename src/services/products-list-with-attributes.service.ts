@@ -1,5 +1,6 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
+import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import {
   fetchVariantsByProductId,
   mapVariantToLegacyAttribute,
@@ -144,7 +145,14 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
       ResponseMsg: "Something Went Wrong! Store ID is required.",
     };
   }
-  const store_id = toInt(store_id_raw, 0);
+  const store_id = await resolveStoreNumericId(store_id_raw);
+  if (!store_id) {
+    return {
+      ResponseCode: "401",
+      Result: "false",
+      ResponseMsg: "Invalid store_id. Use numeric service_details.id or public store code (e.g. RM20251226024).",
+    };
+  }
   let page = data && data.page !== undefined ? toInt(data.page, 1) : 1;
   if (page < 1) page = 1;
   let limit = data && data.limit !== undefined ? toInt(data.limit, 20) : 20;
@@ -245,7 +253,14 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     };
   }
 
-  const store_id = toInt(store_id_raw, 0);
+  const store_id = await resolveStoreNumericId(store_id_raw);
+  if (!store_id) {
+    return {
+      ResponseCode: "401",
+      Result: "false",
+      ResponseMsg: "Invalid store_id. Use numeric service_details.id or public store code (e.g. RM20251226024).",
+    };
+  }
 
   let page = data && data.page !== undefined ? toInt(data.page, 1) : 1;
   if (page < 1) page = 1;

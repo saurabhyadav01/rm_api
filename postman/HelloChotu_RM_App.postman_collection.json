@@ -214,6 +214,18 @@
           }
         },
         {
+          "name": "Store Update",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"mobile\": \"9876543210\",\n  \"business_name\": \"Updated Store Name\",\n  \"email\": \"store@example.com\",\n  \"full_address\": \"456 Updated St, Delhi 110001\",\n  \"business_type\": \"Grocery\",\n  \"store_banner\": \"images/dstore.png\",\n  \"cover_image_url\": \"images/store/1763721210.jpg\"\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/stores/update"
+          }
+        },
+        {
           "name": "Store Add (alias)",
           "request": {
             "method": "POST",
@@ -276,6 +288,18 @@
               "raw": "{\n  \"store_id\": \"{{store_id}}\",\n  \"page\": 1,\n  \"limit\": 20\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/products/list-with-attributes"
+          }
+        },
+        {
+          "name": "Update With Attributes",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": \"{{product_id}}\",\n  \"store_id\": \"{{store_id}}\",\n  \"status\": \"1\",\n  \"title\": \"Updated Product\",\n  \"cat_id\": \"13\",\n  \"img\": \"images/product/sample.jpg\",\n  \"attributes\": [\n    {\n      \"attribute_id\": \"1\",\n      \"mprice\": \"120\",\n      \"sprice\": \"0\",\n      \"mdiscount\": \"10\",\n      \"mstock\": \"1\",\n      \"title\": \"1kg\",\n      \"srequire\": \"0\"\n    }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/products/update-with-attributes"
           }
         },
         {

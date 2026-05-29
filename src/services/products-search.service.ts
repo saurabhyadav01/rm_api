@@ -1,5 +1,6 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
+import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import {
   fetchVariantsByProductId,
   mapVariantToLegacyAttribute,
@@ -70,8 +71,12 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       return { ResponseCode: "401", Result: "false", ResponseMsg: "Invalid JSON data provided!" };
     }
 
-    const store_id = data.store_id !== undefined ? s(data.store_id) : "";
-    if (!store_id) return { ResponseCode: "401", Result: "false", ResponseMsg: "store_id is required" };
+    const store_id_raw = data.store_id !== undefined ? s(data.store_id) : "";
+    if (!store_id_raw) return { ResponseCode: "401", Result: "false", ResponseMsg: "store_id is required" };
+    const store_id = await resolveStoreNumericId(store_id_raw);
+    if (!store_id) {
+      return { ResponseCode: "401", Result: "false", ResponseMsg: "Invalid store_id" };
+    }
 
     const keyword = data.keyword !== undefined ? s(data.keyword) : "";
     if (!keyword) return { ResponseCode: "401", Result: "false", ResponseMsg: "keyword is required" };
