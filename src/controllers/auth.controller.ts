@@ -125,7 +125,7 @@ export async function loginWithOtp(req: Request, res: Response) {
       data: null,
     });
 
-  const ok = verifyOtp(parsed.data.phone, parsed.data.otp);
+  const ok = verifyOtp(rm.phone, parsed.data.otp);
   if (!ok)
     return send(res, 401, {
       success: false,
