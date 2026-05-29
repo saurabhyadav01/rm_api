@@ -1,6 +1,12 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
-import { fetchVariantsByProductId, mapVariantToLegacyAttribute } from "./product-v2.shared";
+import {
+  fetchVariantsByProductId,
+  mapVariantToLegacyAttribute,
+  PRODUCT_TITLE_SQL,
+  productImageFromRow,
+  productTitleFromRow,
+} from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -84,7 +90,7 @@ async function looseProductsSearchV2(data: any): Promise<Record<string, unknown>
   ];
   const params: Record<string, unknown> = {};
   if (keyword) {
-    whereParts.push("p.title LIKE :kw");
+    whereParts.push(`${PRODUCT_TITLE_SQL} LIKE :kw`);
     params.kw = `%${keyword}%`;
   }
   const whereClause = `WHERE ${whereParts.join(" AND ")}`;
@@ -114,9 +120,9 @@ async function looseProductsSearchV2(data: any): Promise<Record<string, unknown>
       cat_name: null,
       sub_cat_id: product.sub_cat_id ?? product.subcategory_id ?? null,
       sub_cat_name: "",
-      title: cleanText(product.title),
+      title: cleanText(productTitleFromRow(product)),
       loose_product: 1,
-      img: product.img ?? product.primary_image_url ?? "",
+      img: productImageFromRow(product),
       product_images: product.product_images ? JSON.parse(String(product.product_images)) : [],
       description: cleanDescription(product.description),
       status: product.status,

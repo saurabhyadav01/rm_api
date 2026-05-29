@@ -1,6 +1,12 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
-import { fetchVariantsByProductId, mapVariantToLegacyAttribute } from "./product-v2.shared";
+import {
+  fetchVariantsByProductId,
+  mapVariantToLegacyAttribute,
+  PRODUCT_TITLE_SQL,
+  productImageFromRow,
+  productTitleFromRow,
+} from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -83,7 +89,7 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       FROM products p
       WHERE p.store_id = :store_id
         AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
-        AND p.title LIKE :kw
+        AND ${PRODUCT_TITLE_SQL} LIKE :kw
       `,
       { store_id, kw: `%${keyword}%` } as any,
     );
@@ -96,7 +102,7 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       FROM products p
       WHERE p.store_id = :store_id
         AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
-        AND p.title LIKE :kw
+        AND ${PRODUCT_TITLE_SQL} LIKE :kw
       ORDER BY p.id DESC
       LIMIT :offset, :limit
       `,
@@ -112,8 +118,8 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       productData.cat_name = null; // no tbl_category in v2
       productData.sub_cat_id = product.sub_cat_id ?? product.subcategory_id ?? null;
       productData.sub_cat_name = ""; // no tbl_product_category in v2
-      productData.title = cleanText(product.title);
-      productData.img = product.img ?? product.image ?? product.image_url ?? "";
+      productData.title = cleanText(productTitleFromRow(product));
+      productData.img = productImageFromRow(product);
       productData.product_images = product.product_images ? (JSON.parse(String(product.product_images)) ?? []) : [];
       productData.description = cleanDescription(product.description);
       productData.status = product.status ?? "1";

@@ -1,6 +1,11 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
-import { fetchVariantsByProductId, mapVariantToLegacyAttribute } from "./product-v2.shared";
+import {
+  fetchVariantsByProductId,
+  mapVariantToLegacyAttribute,
+  productImageFromRow,
+  productTitleFromRow,
+} from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -200,8 +205,8 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
       cat_name: null,
       sub_cat_id: product.sub_cat_id ?? null,
       sub_cat_name: "",
-      title: cleanAggressive(product.title),
-      img: product.primary_image_url ?? product.img ?? "",
+      title: cleanAggressive(productTitleFromRow(product)),
+      img: productImageFromRow(product),
       product_images: product.product_images ? JSON.parse(String(product.product_images)) : [],
       description: cleanDescription(product.description),
       status: product.status,
