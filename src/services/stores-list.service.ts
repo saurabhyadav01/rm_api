@@ -2,15 +2,24 @@ import { pool } from "../db/mysql";
 import { useProductSchemaV2, useStoresTable } from "../config/schema";
 import { type RowDataPacket } from "mysql2/promise";
 
-/** Avoid utf8mb3 vs utf8mb4 collation errors on mixed legacy columns. */
-function rmIdEqualsSql(column: string, param = ":rm_id") {
-  return `TRIM(CAST(${column} AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci) = TRIM(CAST(${param} AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci)`;
+/** Cast text to utf8mb4_bin so comparisons never mix utf8mb3 / utf8mb4 collations. */
+function asUtf8mb4Bin(expr: string) {
+  return `CAST(${expr} AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_bin`;
 }
 
-const STORE_ADDRESS_SQL = `TRIM(BOTH ',' FROM CONCAT_WS(',',
-  COALESCE(sa.address_line_1, ''),
-  COALESCE(sa.city, ''),
-  COALESCE(sa.postal_code, '')
+function rmIdEqualsSql(column: string, param = ":rm_id") {
+  return `${asUtf8mb4Bin(`TRIM(${column})`)} = ${asUtf8mb4Bin(`TRIM(${param})`)}`;
+}
+
+/** RM filter: regional_manager_id OR store_code (app often sends store code as rm_id). */
+function storesRmWhereSql() {
+  return `(${rmIdEqualsSql("s.regional_manager_id")} OR ${rmIdEqualsSql("s.store_code")})`;
+}
+
+const STORE_ADDRESS_SQL = `TRIM(BOTH ',' FROM CONCAT_WS(', ',
+  CAST(IFNULL(sa.address_line_1, '') AS CHAR CHARACTER SET utf8mb4),
+  CAST(IFNULL(sa.city, '') AS CHAR CHARACTER SET utf8mb4),
+  CAST(IFNULL(sa.postal_code, '') AS CHAR CHARACTER SET utf8mb4)
 ))`;
 
 export type StoresListInput = {
@@ -225,17 +234,17 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
   const idList = storeIds.map((id) => Number(id)).filter((id) => id > 0).join(",");
   if (!idList) return stats;
 
-  const productActive = "(p.is_deleted = 0 OR p.is_deleted IS NULL) AND (p.status = 1 OR p.status = '1')";
+  const productActive = "(p.is_deleted = 0 OR p.is_deleted IS NULL) AND p.status = 1";
   const variantActive =
-    "(v.is_deleted = 0 OR v.is_deleted IS NULL) AND v.deleted_at IS NULL AND (v.status = 1 OR v.status = '1')";
-  const approvalExpr = "LOWER(TRIM(COALESCE(v.approval_status, p.approval_status, '')))";
-  const isPendingActive = `(${approvalExpr} NOT IN ('approved') OR (v.status = 0 OR v.status = '0'))`;
+    "(v.is_deleted = 0 OR v.is_deleted IS NULL) AND v.deleted_at IS NULL AND v.status = 1";
+  const approvalVal = asUtf8mb4Bin("COALESCE(v.approval_status, p.approval_status, 'pending')");
+  const isPendingActive = `(${approvalVal} <> ${asUtf8mb4Bin("'approved'")} OR v.status = 0)`;
 
   const [prodRows] = await pool.query<StatsRow[]>(
     `
     SELECT
       p.store_id,
-      SUM(CASE WHEN (p.is_loose_product = 1 OR p.is_loose_product = '1') AND ${productActive} THEN 1 ELSE 0 END) AS loose_product_count
+      SUM(CASE WHEN p.is_loose_product = 1 AND ${productActive} THEN 1 ELSE 0 END) AS loose_product_count
     FROM products p
     WHERE p.store_id IN (${idList})
     GROUP BY p.store_id
@@ -283,8 +292,8 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
     WHERE p.store_id IN (${idList})
       AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
       AND (
-        LOWER(TRIM(COALESCE(p.approval_status, ''))) NOT IN ('approved')
-        OR (p.status = 0 OR p.status = '0')
+        ${asUtf8mb4Bin("COALESCE(p.approval_status, 'pending')")} <> ${asUtf8mb4Bin("'approved'")}
+        OR p.status = 0
       )
       AND NOT EXISTS (
         SELECT 1 FROM product_variants v
@@ -392,7 +401,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
   const offset = (page - 1) * limit;
   const includeProductCounts = includeProductCountsFlag(input.include_product_counts);
 
-  const whereParts: string[] = [rmIdEqualsSql("s.regional_manager_id"), `(s.is_deleted = 0 OR s.is_deleted IS NULL)`];
+  const whereParts: string[] = [storesRmWhereSql(), `(s.is_deleted = 0 OR s.is_deleted IS NULL)`];
   const params: Record<string, unknown> = { rm_id };
 
   const start_date = s(input.start_date);
@@ -415,23 +424,26 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
 
   const business_type = s(input.business_type);
   if (business_type) {
-    whereParts.push("s.location_code LIKE :business_type");
+    whereParts.push(`${asUtf8mb4Bin("s.location_code")} LIKE ${asUtf8mb4Bin(":business_type")}`);
     params.business_type = `%${business_type}%`;
   }
 
   const keyword = s(input.keyword);
   if (keyword) {
-    whereParts.push("(s.name LIKE :kw OR sc.phone_number LIKE :kw OR sc.email LIKE :kw)");
+    whereParts.push(
+      `(${asUtf8mb4Bin("s.name")} LIKE ${asUtf8mb4Bin(":kw")} OR ${asUtf8mb4Bin("sc.phone_number")} LIKE ${asUtf8mb4Bin(":kw")} OR ${asUtf8mb4Bin("sc.email")} LIKE ${asUtf8mb4Bin(":kw")})`,
+    );
     params.kw = `%${keyword}%`;
   }
 
   const whereClause = whereParts.join(" AND ");
 
   try {
+    const countFrom = keyword
+      ? "stores s LEFT JOIN store_credentials sc ON sc.store_id = s.id"
+      : "stores s";
     const [countRows] = await pool.query<CountRow[]>(
-      `SELECT COUNT(*) AS total FROM stores s
-       LEFT JOIN store_credentials sc ON sc.store_id = s.id
-       WHERE ${whereClause}`,
+      `SELECT COUNT(DISTINCT s.id) AS total FROM ${countFrom} WHERE ${whereClause}`,
       params as any,
     );
     const totalRecords = Number(countRows?.[0]?.total ?? 0);
@@ -441,7 +453,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
       `
       SELECT COUNT(*) AS total FROM stores s
       WHERE (s.is_deleted = 0 OR s.is_deleted IS NULL)
-        AND ${rmIdEqualsSql("s.regional_manager_id")}
+        AND ${storesRmWhereSql()}
       `,
       { rm_id } as any,
     );
