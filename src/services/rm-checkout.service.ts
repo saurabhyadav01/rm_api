@@ -5,6 +5,12 @@ function s(v: unknown) {
   return String(v ?? "").trim();
 }
 
+function optionalString(data: Record<string, unknown>, key: string): string | null {
+  if (!(key in data)) return null;
+  const val = s(data[key]);
+  return val !== "" ? val : null;
+}
+
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -24,8 +30,12 @@ function nowParts() {
   };
 }
 
+/** Mirrors PHP: SRID in store_id → Non-onboarded, else Onboarded. */
+function resolveStoreType(storeId: string): "Onboarded" | "Non-onboarded" {
+  return storeId.toUpperCase().includes("SRID") ? "Non-onboarded" : "Onboarded";
+}
+
 export async function rmCheckoutCreateService(data: Record<string, unknown>): Promise<Record<string, unknown>> {
-  // Validate required fields
   if (!("rm_id" in data) || s(data.rm_id) === "") {
     return { ResponseCode: "401", Result: "false", ResponseMsg: "rm_id is required" };
   }
@@ -35,43 +45,48 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
 
   const rm_id = s(data.rm_id);
   const store_id = s(data.store_id);
+  const store_type = resolveStoreType(store_id);
 
   const { current_date, current_time, current_date_time } = nowParts();
 
-  // Handle checkin_date and checkin_time separately, or combined checkin_date_time
   let checkin_date_time = current_date_time;
+  let checkin_date = current_date;
+  let checkin_time = current_time;
+
   if (s(data.checkin_date_time) !== "") {
     checkin_date_time = s(data.checkin_date_time);
+    const checkin_parts = checkin_date_time.split(" ");
+    checkin_date = checkin_parts[0] ?? current_date;
+    checkin_time = checkin_parts[1] ?? current_time;
   } else if ("checkin_date" in data || "checkin_time" in data) {
-    const checkin_date = s(data.checkin_date) !== "" ? s(data.checkin_date) : current_date;
-    const checkin_time = s(data.checkin_time) !== "" ? s(data.checkin_time) : current_time;
+    checkin_date = s(data.checkin_date) !== "" ? s(data.checkin_date) : current_date;
+    checkin_time = s(data.checkin_time) !== "" ? s(data.checkin_time) : current_time;
     checkin_date_time = `${checkin_date} ${checkin_time}`;
   }
 
-  // Handle checkout_date and checkout_time separately, or combined checkout_date_time
   let checkout_date_time: string | null = null;
+  let checkout_date: string | null = null;
+  let checkout_time: string | null = null;
+
   if (s(data.checkout_date_time) !== "") {
     checkout_date_time = s(data.checkout_date_time);
+    const checkout_parts = checkout_date_time.split(" ");
+    checkout_date = checkout_parts[0] ?? null;
+    checkout_time = checkout_parts[1] ?? null;
   } else if ("checkout_date" in data || "checkout_time" in data) {
-    const checkout_date = s(data.checkout_date) !== "" ? s(data.checkout_date) : current_date;
-    const checkout_time = s(data.checkout_time) !== "" ? s(data.checkout_time) : current_time;
+    checkout_date = s(data.checkout_date) !== "" ? s(data.checkout_date) : current_date;
+    checkout_time = s(data.checkout_time) !== "" ? s(data.checkout_time) : current_time;
     checkout_date_time = `${checkout_date} ${checkout_time}`;
   }
 
-  // Handle status (optional)
   const status = s(data.status) !== "" ? s(data.status) : "1";
 
-  // NEW FIELD
-  const checkout_type = s(data.checkout_type) !== "" ? s(data.checkout_type) : "manual";
-
-  // Optional new fields (based on provided table)
-  const checkin_latitude = s((data as any).checkin_latitude) || null;
-  const checkin_longitude = s((data as any).checkin_longitude) || null;
-  const checkin_location = s((data as any).checkin_location) || null;
-  const checkout_latitude = s((data as any).checkout_latitude) || null;
-  const checkout_longitude = s((data as any).checkout_longitude) || null;
-  const checkout_location = s((data as any).checkout_location) || null;
-  const store_type = s((data as any).store_type) || null;
+  const checkin_latitude = optionalString(data, "checkin_latitude");
+  const checkin_longitude = optionalString(data, "checkin_longitude");
+  const checkin_location = optionalString(data, "checkin_location");
+  const checkout_latitude = optionalString(data, "checkout_latitude");
+  const checkout_longitude = optionalString(data, "checkout_longitude");
+  const checkout_location = optionalString(data, "checkout_location");
 
   try {
     const [result] = await pool.query<ResultSetHeader>(
@@ -82,7 +97,6 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         store_id,
         checkin_date_time,
         checkout_date_time,
-        checkout_type,
         status,
         current_date_time,
         checkin_latitude,
@@ -90,8 +104,7 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         checkin_location,
         checkout_latitude,
         checkout_longitude,
-        checkout_location,
-        store_type
+        checkout_location
       )
       VALUES
       (
@@ -99,7 +112,6 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         :store_id,
         :checkin_date_time,
         :checkout_date_time,
-        :checkout_type,
         :status,
         :current_date_time,
         :checkin_latitude,
@@ -107,8 +119,7 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         :checkin_location,
         :checkout_latitude,
         :checkout_longitude,
-        :checkout_location,
-        :store_type
+        :checkout_location
       )
       `,
       {
@@ -116,7 +127,6 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         store_id,
         checkin_date_time,
         checkout_date_time,
-        checkout_type,
         status,
         current_date_time,
         checkin_latitude,
@@ -125,13 +135,10 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
         checkout_latitude,
         checkout_longitude,
         checkout_location,
-        store_type,
       } as any,
     );
 
     const checkout_id = Number(result.insertId);
-    const checkin_parts = checkin_date_time.split(" ");
-    const checkout_parts = checkout_date_time ? checkout_date_time.split(" ") : [null, null];
     const current_parts = current_date_time.split(" ");
 
     return {
@@ -141,17 +148,23 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
       checkout_id,
       rm_id,
       store_id,
-      checkout_type,
+      store_type,
       checkin_date_time,
-      checkin_date: checkin_parts[0] ?? "",
-      checkin_time: checkin_parts[1] ?? "",
+      checkin_date,
+      checkin_time,
       checkout_date_time,
-      checkout_date: checkout_parts[0] ?? null,
-      checkout_time: checkout_parts[1] ?? null,
+      checkout_date,
+      checkout_time,
       status,
       current_date_time,
       current_date: current_parts[0],
       current_time: current_parts[1],
+      checkin_latitude,
+      checkin_longitude,
+      checkin_location,
+      checkout_latitude,
+      checkout_longitude,
+      checkout_location,
       created: true,
     };
   } catch (e) {
@@ -159,10 +172,9 @@ export async function rmCheckoutCreateService(data: Record<string, unknown>): Pr
     return {
       ResponseCode: "500",
       Result: "false",
-      ResponseMsg: `Failed to create checkout record: ${msg}`,
+      ResponseMsg: msg ? `Failed to create checkout record: ${msg}` : "Failed to create checkout record",
       rm_id,
       store_id,
     };
   }
 }
-

@@ -428,7 +428,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"store_id\": \"{{store_id}}\",\n  \"checkin_date_time\": \"2026-05-28 10:00:00\",\n  \"checkout_date_time\": \"2026-05-28 11:00:00\",\n  \"status\": \"1\",\n  \"checkout_type\": \"manual\",\n  \"checkin_latitude\": \"28.6139\",\n  \"checkin_longitude\": \"77.2090\",\n  \"checkin_location\": \"Delhi\",\n  \"store_type\": \"onboarded\"\n}"
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"store_id\": \"{{store_id}}\",\n  \"checkin_date_time\": \"2026-05-28 10:00:00\",\n  \"checkout_date_time\": \"2026-05-28 11:00:00\",\n  \"status\": \"1\",\n  \"checkin_latitude\": \"28.6139\",\n  \"checkin_longitude\": \"77.2090\",\n  \"checkin_location\": \"Delhi, India\",\n  \"checkout_latitude\": \"28.6140\",\n  \"checkout_longitude\": \"77.2091\",\n  \"checkout_location\": \"Delhi, India\"\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/rm_checkout"
           }
