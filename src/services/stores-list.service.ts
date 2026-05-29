@@ -2,6 +2,17 @@ import { pool } from "../db/mysql";
 import { useProductSchemaV2, useStoresTable } from "../config/schema";
 import { type RowDataPacket } from "mysql2/promise";
 
+/** Avoid utf8mb3 vs utf8mb4 collation errors on mixed legacy columns. */
+function rmIdEqualsSql(column: string, param = ":rm_id") {
+  return `TRIM(CAST(${column} AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci) = TRIM(CAST(${param} AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci)`;
+}
+
+const STORE_ADDRESS_SQL = `TRIM(BOTH ',' FROM CONCAT_WS(',',
+  COALESCE(sa.address_line_1, ''),
+  COALESCE(sa.city, ''),
+  COALESCE(sa.postal_code, '')
+))`;
+
 export type StoresListInput = {
   rm_id: string;
   page?: unknown;
@@ -381,10 +392,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
   const offset = (page - 1) * limit;
   const includeProductCounts = includeProductCountsFlag(input.include_product_counts);
 
-  const whereParts: string[] = [
-    `(CONVERT(CAST(s.regional_manager_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci) = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)`,
-    `(s.is_deleted = 0 OR s.is_deleted IS NULL)`,
-  ];
+  const whereParts: string[] = [rmIdEqualsSql("s.regional_manager_id"), `(s.is_deleted = 0 OR s.is_deleted IS NULL)`];
   const params: Record<string, unknown> = { rm_id };
 
   const start_date = s(input.start_date);
@@ -433,8 +441,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
       `
       SELECT COUNT(*) AS total FROM stores s
       WHERE (s.is_deleted = 0 OR s.is_deleted IS NULL)
-        AND (CONVERT(CAST(s.regional_manager_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-          = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+        AND ${rmIdEqualsSql("s.regional_manager_id")}
       `,
       { rm_id } as any,
     );
@@ -444,8 +451,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
       `
       SELECT COUNT(*) AS total FROM non_onboarded_store
       WHERE is_deleted = 0
-        AND (CONVERT(CAST(rm_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-          = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+        AND ${rmIdEqualsSql("rm_id")}
       `,
       { rm_id } as any,
     );
@@ -464,7 +470,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
         s.name AS business_name,
         sc.email,
         sc.phone_number AS mobile,
-        CONCAT_WS(', ', NULLIF(sa.address_line_1, ''), NULLIF(sa.city, ''), NULLIF(sa.postal_code, '')) AS full_address,
+        ${STORE_ADDRESS_SQL} AS full_address,
         sa.postal_code AS pincode,
         s.location_code AS business_type,
         s.category_ids,
@@ -612,9 +618,7 @@ export async function storesListService(input: StoresListInput): Promise<Service
   const offset = (page - 1) * limit;
   const includeProductCounts = includeProductCountsFlag(input.include_product_counts);
 
-  const whereParts: string[] = [
-    `(CONVERT(CAST(sd.rm_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci) = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)`,
-  ];
+  const whereParts: string[] = [rmIdEqualsSql("sd.rm_id")];
   const params: Record<string, unknown> = { rm_id };
 
   const start_date = s(input.start_date);
@@ -661,8 +665,7 @@ export async function storesListService(input: StoresListInput): Promise<Service
       `
       SELECT COUNT(*) AS total
       FROM service_details
-      WHERE (CONVERT(CAST(rm_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-        = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+      WHERE ${rmIdEqualsSql("rm_id")}
       `,
       { rm_id } as any,
     );
@@ -673,8 +676,7 @@ export async function storesListService(input: StoresListInput): Promise<Service
       SELECT COUNT(*) AS total
       FROM non_onboarded_store
       WHERE is_deleted = 0
-        AND (CONVERT(CAST(rm_id AS CHAR) USING utf8mb4) COLLATE utf8mb4_unicode_ci)
-          = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)
+        AND ${rmIdEqualsSql("rm_id")}
       `,
       { rm_id } as any,
     );
