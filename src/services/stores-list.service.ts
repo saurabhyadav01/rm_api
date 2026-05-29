@@ -321,87 +321,116 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
   return stats;
 }
 
-/** Match legacy PHP store list JSON shapes (counts as strings, plan fields as strings). */
-function phpEmptyStr(v: unknown): string {
+/** mysqli-style: almost all columns are strings in JSON (matches legacy PHP store list). */
+function phpStr(v: unknown): string {
   if (v === null || v === undefined) return "";
+  if (v instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())} ${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
+  }
   return String(v);
 }
 
-function phpNullableField(v: unknown): string | null {
+/** PHP null for optional fields; empty string stays "". */
+function phpNullableStr(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   const t = String(v).trim();
-  return t === "" ? null : String(v);
+  if (t === "") return null;
+  if (v instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())} ${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
+  }
+  return String(v);
+}
+
+function phpTimeStr(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (v instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
+  }
+  const t = String(v).trim();
+  if (!t) return "";
+  return t.length >= 8 ? t.slice(0, 8) : t;
+}
+
+function phpDecimalStr(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const n = Number(v);
+  if (Number.isFinite(n)) return n.toFixed(2);
+  return String(v);
 }
 
 function formatPhpStoreListItem(row: StoreRow, ps: ProductStats | null) {
   const variantTotal = ps?.attribute_total ?? 0;
   const pendingTotal = ps?.pending_count ?? 0;
   const approvedTotal = Math.max(0, variantTotal - pendingTotal);
-  const nosIdRaw = row.non_onboarded_store_id ? s(row.non_onboarded_store_id) : "";
-  const nosId = nosIdRaw || null;
+  const nosIdRaw = s(row.non_onboarded_store_id);
+  const nosId = nosIdRaw ? nosIdRaw : null;
+  const owner = s(row.owner_name);
 
   return {
-    id: row.id,
-    business_name: row.business_name ?? "",
-    email: row.email,
-    mobile: row.mobile ?? "",
-    full_address: row.full_address,
-    pincode: row.pincode,
-    business_type: String(row.business_type ?? "").replaceAll(",", ", "),
-    category_ids: row.category_ids,
-    opentime: row.opentime,
-    closetime: row.closetime,
-    location: row.landmark,
-    latitude: row.latitude,
-    longitude: row.longitude,
-    zone_id: row.zone_id,
-    bank_name: row.bank_name,
-    street: row.street ?? "",
-    area: row.area ?? "",
-    city: row.city ?? "",
-    state: row.state ?? "",
-    ifsc: row.ifsc,
-    account_holder_name: row.account_holder_name,
-    account_number: row.account_number,
-    transaction_id: row.transaction_id,
-    status: row.status,
-    rstatus: row.rstatus,
-    rate: row.rate,
-    commission: row.commission,
-    store_banner: row.store_banner,
-    cover_image_url: row.cover_image_url,
+    id: phpStr(row.id),
+    business_name: phpStr(row.business_name),
+    email: phpStr(row.email),
+    mobile: phpStr(row.mobile),
+    full_address: phpStr(row.full_address),
+    pincode: phpStr(row.pincode),
+    business_type: phpStr(row.business_type).replaceAll(",", ", "),
+    category_ids: phpStr(row.category_ids),
+    opentime: phpTimeStr(row.opentime),
+    closetime: phpTimeStr(row.closetime),
+    location: phpStr(row.landmark),
+    latitude: phpStr(row.latitude),
+    longitude: phpStr(row.longitude),
+    zone_id: phpStr(row.zone_id),
+    bank_name: phpStr(row.bank_name),
+    street: phpStr(row.street),
+    area: phpStr(row.area),
+    city: phpStr(row.city),
+    state: phpStr(row.state),
+    ifsc: phpStr(row.ifsc),
+    account_holder_name: phpStr(row.account_holder_name),
+    account_number: phpStr(row.account_number),
+    transaction_id: phpStr(row.transaction_id),
+    status: phpStr(row.status),
+    rstatus: phpStr(row.rstatus),
+    rate: phpStr(row.rate),
+    commission: phpStr(row.commission),
+    store_banner: phpStr(row.store_banner),
+    cover_image_url: phpStr(row.cover_image_url),
     registration_date: "",
-    rm_id: row.rm_id,
-    ra_id: row.ra_id,
-    fr_id: row.fr_id,
-    plan_id: row.plan_id,
-    plan_opt: phpEmptyStr(row.plan_title),
-    plan_price: phpEmptyStr(row.plan_price),
-    plan_product_limit: phpEmptyStr(row.plan_product_limit),
-    plan_description: phpEmptyStr(row.plan_description),
+    rm_id: phpStr(row.rm_id),
+    ra_id: phpStr(row.ra_id),
+    fr_id: phpStr(row.fr_id),
+    plan_id: phpStr(row.plan_id),
+    plan_opt: phpStr(row.plan_title),
+    plan_price: phpDecimalStr(row.plan_price),
+    plan_product_limit: phpStr(row.plan_product_limit),
+    plan_description: phpStr(row.plan_description),
     total: String(variantTotal),
     product_count: String(variantTotal),
     pending_count: String(pendingTotal),
     approved_count: String(approvedTotal),
     loose_product_count: String(ps?.loose_product_count ?? 0),
-    slogan: row.slogan,
-    slogan_title: row.slogan_title,
-    tags: row.tags,
-    description: row.description,
-    cancel_policy: row.cancle_policy,
-    base_distance: row.base_distance,
-    base_charge: row.base_charge,
-    extra_charge: row.extra_charge,
-    remark: row.remark,
-    owner_name: row.owner_name && s(row.owner_name) ? row.owner_name : "N/A",
-    refercode: row.refercode,
-    break_start_time: phpNullableField(row.break_start_time),
-    break_end_time: phpNullableField(row.break_end_time),
-    aadhar_back: phpNullableField(row.aadhar_back),
+    slogan: phpStr(row.slogan),
+    slogan_title: phpStr(row.slogan_title),
+    tags: phpStr(row.tags),
+    description: phpStr(row.description),
+    cancel_policy: phpStr(row.cancle_policy),
+    base_distance: phpStr(row.base_distance),
+    base_charge: phpStr(row.base_charge),
+    extra_charge: phpStr(row.extra_charge),
+    remark: phpStr(row.remark),
+    owner_name: owner || "N/A",
+    refercode: phpStr(row.refercode),
+    break_start_time: phpNullableStr(row.break_start_time),
+    break_end_time: phpNullableStr(row.break_end_time),
+    aadhar_back: phpNullableStr(row.aadhar_back),
     store_type: nosId ? "non_onboard_store" : "onboard_store",
     non_onboarded_store_id: nosId,
-    non_onboarded_date: phpNullableField(row.non_onboarded_date),
-    trnaseferdate: phpNullableField(row.created_at),
+    non_onboarded_date: phpNullableStr(row.non_onboarded_date),
+    trnaseferdate: phpNullableStr(row.created_at),
   };
 }
 
@@ -450,7 +479,7 @@ function buildStoresListSuccessBody(params: {
     approved_count: String(pageApprovedTotal),
     total_stores: stores.length,
     stores,
-  };
+  } as Record<string, unknown>;
 }
 
 /** hellochotu_microservices `stores` + related tables (no service_details). */
