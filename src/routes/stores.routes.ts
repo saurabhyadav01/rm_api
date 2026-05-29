@@ -4,33 +4,30 @@ import { storeOnboarding } from "../controllers/store-onboarding.controller";
 
 export const storesRouter = Router();
 
-storesRouter.options("/list", (_req, res) => res.sendStatus(200));
-storesRouter.all("/list", (req, res, next) => {
+const postOnlyGuard = (req: { method: string }, res: { status: (n: number) => { json: (b: unknown) => void } }, next: () => void) => {
+  if (req.method === "OPTIONS") return next();
   if (req.method !== "POST") {
     return res.status(405).json({
       success: false,
-      ResponseCode: "405",
-      Result: "false",
-      ResponseMsg: "Method Not Allowed. Please use POST with JSON body.",
+      message: "Method not allowed. Use POST.",
     });
   }
   return next();
-});
+};
+
+// Store list — GET query or POST JSON (PHP mobile app)
+storesRouter.options("/list", (_req, res) => res.sendStatus(200));
+storesRouter.get("/list", storesList);
 storesRouter.post("/list", storesList);
 
-// Alias: search endpoint (same behavior/response)
+// Alias: search (optional keyword filter)
 storesRouter.options("/search", (_req, res) => res.sendStatus(200));
-storesRouter.all("/search", (req, res, next) => {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      success: false,
-      ResponseCode: "405",
-      Result: "false",
-      ResponseMsg: "Method Not Allowed. Please use POST with JSON body.",
-    });
-  }
-  return next();
-});
+storesRouter.get("/search", storesList);
 storesRouter.post("/search", storesList);
-storesRouter.post("/onboard", storeOnboarding);
 
+// Store onboarding (PHP mobile app) — same handler for all paths
+const onboardPaths = ["/onboard", "/add", "/add-store"] as const;
+for (const path of onboardPaths) {
+  storesRouter.options(path, (_req, res) => res.sendStatus(200));
+  storesRouter.all(path, postOnlyGuard, storeOnboarding);
+}

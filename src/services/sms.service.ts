@@ -30,6 +30,49 @@ export class SmsSendError extends Error {
 }
 
 /** Send OTP via HelloChotu SMS provider (EduMarc). */
+/** Store onboarding welcome SMS (optional template). Returns provider payload or error object. */
+export async function sendOnboardingMessages(
+  phone: string,
+  ownerName: string,
+  onboardingFee: number,
+): Promise<unknown> {
+  if (!isSmsConfigured()) {
+    return { error: "SMS_API_KEY is not configured on the server" };
+  }
+
+  const templateId = (process.env.SMS_ONBOARDING_TEMPLATE_ID || "").trim();
+  const localNumber = toSmsMobileNumber(phone);
+  if (localNumber.length !== 10) {
+    return { error: "Invalid mobile number for SMS" };
+  }
+
+  const feeText = Number.isFinite(onboardingFee) ? String(Math.round(onboardingFee)) : "0";
+  const message =
+    (process.env.SMS_ONBOARDING_MESSAGE || "").trim() ||
+    `Hello ${ownerName}, welcome to HelloChotu! Your onboarding fee is Rs ${feeText}. Thank you for joining us.`;
+
+  const requestBody: Record<string, unknown> = {
+    number: [localNumber],
+    message,
+    senderId: SMS_SENDER_ID,
+  };
+  if (templateId) requestBody.templateId = templateId;
+
+  try {
+    const response = await axios.post(SMS_API_URL, requestBody, {
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SMS_API_KEY,
+      },
+      timeout: Number(process.env.SMS_TIMEOUT_MS || 15000),
+    });
+    return response.data;
+  } catch (error: unknown) {
+    const err = error as { message?: string; response?: { data?: unknown } };
+    return { error: err.message || "Failed to send onboarding SMS", provider: err.response?.data };
+  }
+}
+
 export async function sendOtpSms(phone: string, otp: string, lang = "en"): Promise<void> {
   if (!isSmsConfigured()) {
     throw new SmsSendError("SMS_API_KEY is not configured on the server");

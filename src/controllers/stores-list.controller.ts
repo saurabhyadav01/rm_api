@@ -1,20 +1,68 @@
 import { type Request, type Response } from "express";
-import { z } from "zod";
-import { storesListService } from "../services/stores-list.service";
+import { storesListService, type StoresListInput } from "../services/stores-list.service";
 
-const bodySchema = z
-  .object({
-    rm_id: z.string().optional(),
-    keyword: z.string().optional(),
-    status: z.union([z.string(), z.number()]).optional(),
-    page: z.union([z.number(), z.string()]).optional(),
-    limit: z.union([z.number(), z.string()]).optional(),
-  })
-  .passthrough();
+type RawBodyRequest = Request & { rawBody?: string };
 
-export async function storesList(req: Request, res: Response) {
-  const data = bodySchema.safeParse(req.body);
-  if (!data.success || !data.data || !data.data.rm_id) {
+function parseListInput(req: RawBodyRequest): StoresListInput {
+  if (req.method === "GET") {
+    const q = req.query;
+    return {
+      rm_id: String(q.rm_id ?? ""),
+      page: q.page,
+      limit: q.limit,
+      start_date: q.start_date,
+      end_date: q.end_date,
+      status: q.status,
+      business_type: q.business_type,
+      include_product_counts: q.include_product_counts,
+      keyword: q.keyword,
+    };
+  }
+
+  let body: Record<string, unknown> = {};
+  if (req.body && typeof req.body === "object" && !Array.isArray(req.body)) {
+    body = req.body as Record<string, unknown>;
+  } else {
+    const raw = (req.rawBody ?? "").toString();
+    if (raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          body = parsed as Record<string, unknown>;
+        }
+      } catch {
+        body = {};
+      }
+    }
+  }
+
+  return {
+    rm_id: String(body.rm_id ?? ""),
+    page: body.page,
+    limit: body.limit,
+    start_date: body.start_date,
+    end_date: body.end_date,
+    status: body.status,
+    business_type: body.business_type,
+    include_product_counts: body.include_product_counts,
+    keyword: body.keyword,
+  };
+}
+
+export async function storesList(req: RawBodyRequest, res: Response) {
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  if (req.method !== "POST" && req.method !== "GET") {
+    return res.status(405).json({
+      success: false,
+      message: "Method not allowed. Use POST or GET.",
+    });
+  }
+
+  const input = parseListInput(req);
+  if (!String(input.rm_id ?? "").trim()) {
     return res.status(400).json({
       success: false,
       ResponseCode: "401",
@@ -23,14 +71,6 @@ export async function storesList(req: Request, res: Response) {
     });
   }
 
-  const result = await storesListService({
-    rm_id: String(data.data.rm_id),
-    keyword: data.data.keyword,
-    status: data.data.status,
-    page: data.data.page,
-    limit: data.data.limit,
-  });
-
+  const result = await storesListService(input);
   return res.status(result.httpStatus).json(result.body);
 }
-

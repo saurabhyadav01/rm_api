@@ -1,4 +1,6 @@
 import { pool } from "../db/mysql";
+import { resolveOnboardingPlan } from "./plan.service";
+import { sendOnboardingMessages } from "./sms.service";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 type ServiceResult = {
@@ -53,6 +55,31 @@ type NonOnboardRow = RowDataPacket & { id: number; created_at: string };
 
 function normalizeBusinessName(data: Record<string, unknown>) {
   if (!data.business_name && data.title) data.business_name = data.title;
+  if (!data.business_name && data.shop_name) data.business_name = data.shop_name;
+  if (!data.mobile && data.phone_no) data.mobile = data.phone_no;
+  if (!data.full_address && data.address_line) data.full_address = data.address_line;
+}
+
+/** PHP strtotime + date('H:i:s') */
+function parseTimeToHms(input: unknown, fallback: string): string {
+  const v = s(input);
+  if (!v) return fallback;
+  const ts = Date.parse(`1970-01-01 ${v}`);
+  if (Number.isFinite(ts)) {
+    const d = new Date(ts);
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    const ss = String(d.getUTCSeconds()).padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(v);
+  if (m) {
+    const hh = m[1].padStart(2, "0");
+    const mm = m[2].padStart(2, "0");
+    const ss = (m[3] ?? "00").padStart(2, "0");
+    return `${hh}:${mm}:${ss}`;
+  }
+  return fallback;
 }
 
 function buildTimeSlots(openTime: string, closeTime: string, breakStart?: string | null, breakEnd?: string | null) {
@@ -150,9 +177,8 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
     if (m) pincode = m[0];
   }
 
-  // open/close time parsing (simplified to match PHP defaults)
-  const opentime = data.opentime ? s(data.opentime) : "09:00:00";
-  const closetime = data.closetime ? s(data.closetime) : "22:00:00";
+  const opentime = parseTimeToHms(data.opentime, "09:00:00");
+  const closetime = parseTimeToHms(data.closetime, "22:00:00");
 
   // zone_id lookup (India)
   let zoneId = 1;
@@ -220,6 +246,7 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
   const rawNos = s(data.non_onboarded_store_id);
   let non_onboarded_date_for_insert: string | null = null;
   let nosWhereOr = "";
+  let nosLookupParams: Record<string, unknown> = { rm_id };
   if (rawNos) {
     let nosPk = 0;
     const m = /^SRID(\d+)$/i.exec(rawNos);
@@ -227,13 +254,13 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
     else if (/^\d+$/.test(rawNos)) nosPk = toInt(rawNos, 0);
 
     const parts: string[] = [];
-    const params: Record<string, unknown> = { rm_id };
+    nosLookupParams = { rm_id };
     if (nosPk > 0) {
       parts.push("id = :nosPk");
-      params.nosPk = nosPk;
+      nosLookupParams.nosPk = nosPk;
     }
     parts.push("TRIM(CAST(store_id AS CHAR)) = :rawNos");
-    params.rawNos = rawNos;
+    nosLookupParams.rawNos = rawNos;
     nosWhereOr = parts.join(" OR ");
 
     const [nosRows] = await pool.query<NonOnboardRow[]>(
@@ -246,7 +273,7 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
         AND (${nosWhereOr})
       LIMIT 1
       `,
-      params as any,
+      nosLookupParams as any,
     );
     if (nosRows?.[0]?.created_at) non_onboarded_date_for_insert = String(nosRows[0].created_at);
   }
@@ -339,8 +366,9 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
     const insertedId = Number(result.insertId);
 
     if (rawNos && nosWhereOr) {
-      await pool.query(
-        `
+      await pool
+        .query(
+          `
         UPDATE non_onboarded_store
         SET is_deleted = 1
         WHERE is_deleted = 0
@@ -348,8 +376,9 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
             = (CONVERT(:rm_id USING utf8mb4) COLLATE utf8mb4_unicode_ci)
           AND (${nosWhereOr})
         `,
-        { rm_id, rawNos } as any,
-      ).catch(() => {});
+          nosLookupParams as any,
+        )
+        .catch(() => {});
     }
 
     // Time slots: uses open_time/close_time for slot generation in PHP (different field names)
@@ -365,8 +394,14 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
       );
     }
 
-    // SMS behavior is app-specific (helpers in PHP). We return null by default.
-    const sms_res = null;
+    let sms_res: unknown = null;
+    try {
+      const planDetails = await resolveOnboardingPlan(plan_id);
+      const ownerName = s(data.owner_name) || business_name;
+      sms_res = await sendOnboardingMessages(mobile, ownerName, planDetails.price);
+    } catch (e) {
+      sms_res = { error: e instanceof Error ? e.message : String(e) };
+    }
 
     const image_files: Record<string, unknown> = {
       bank_proof_doc: data.bank_proof_doc ?? "null",

@@ -167,9 +167,26 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"keyword\": \"\",\n  \"status\": \"\",\n  \"page\": 1,\n  \"limit\": 20\n}"
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"page\": 1,\n  \"limit\": 10,\n  \"start_date\": \"\",\n  \"end_date\": \"\",\n  \"status\": \"\",\n  \"business_type\": \"\",\n  \"include_product_counts\": true\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/stores/list"
+          }
+        },
+        {
+          "name": "Stores List (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/stores/list?rm_id={{rm_id}}&page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "stores", "list"],
+              "query": [
+                { "key": "rm_id", "value": "{{rm_id}}" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
           }
         },
         {
@@ -185,15 +202,27 @@
           }
         },
         {
-          "name": "Store Onboard",
+          "name": "Store Onboard (add store)",
           "request": {
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"shop_name\": \"Test Store\",\n  \"owner_name\": \"Owner Name\",\n  \"phone_no\": \"9876543210\",\n  \"category\": \"Grocery\",\n  \"latitude\": \"28.6139\",\n  \"longitude\": \"77.2090\",\n  \"address_line\": \"123 Main St\",\n  \"city\": \"Delhi\",\n  \"pincode\": \"110001\"\n}"
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"ra_id\": \"ra01\",\n  \"fr_id\": \"fr01\",\n  \"mobile\": \"9876543210\",\n  \"business_name\": \"Test Store\",\n  \"owner_name\": \"Owner Name\",\n  \"email\": \"store@example.com\",\n  \"full_address\": \"123 Main St, Delhi 110001\",\n  \"business_type\": \"Grocery\",\n  \"latitude\": \"28.6139\",\n  \"longitude\": \"77.2090\",\n  \"opentime\": \"09:00 AM\",\n  \"closetime\": \"10:00 PM\",\n  \"store_banner\": \"images/dstore.png\",\n  \"cover_image_url\": \"images/store/1763721210.jpg\",\n  \"retailer_fees\": \"1\"\n}"
             },
             "url": "{{base_url}}/api/{{api_version}}/stores/onboard"
+          }
+        },
+        {
+          "name": "Store Add (alias)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rm_id\": \"{{rm_id}}\",\n  \"mobile\": \"9876543210\",\n  \"business_name\": \"Test Store\",\n  \"full_address\": \"123 Main St, Delhi 110001\"\n}"
+            },
+            "url": "{{base_url}}/api/{{api_version}}/stores/add"
           }
         }
       ]

@@ -20,7 +20,9 @@ export const ROUTE_CATALOG: RouteEntry[] = [
 
   { method: "POST", path: "/stores/list", description: "List onboarded stores for RM" },
   { method: "POST", path: "/stores/search", description: "Alias of stores/list", alias: true },
-  { method: "POST", path: "/stores/onboard", description: "Onboard a new store" },
+  { method: "POST", path: "/stores/onboard", description: "Onboard a new store (add store)" },
+  { method: "POST", path: "/stores/add", description: "Alias of stores/onboard", alias: true },
+  { method: "POST", path: "/stores/add-store", description: "Alias of stores/onboard", alias: true },
 
   { method: "POST", path: "/products/search", description: "Search products in a store" },
   { method: "POST", path: "/products/search_v1", description: "Alias of products/search", alias: true },

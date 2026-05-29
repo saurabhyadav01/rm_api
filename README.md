@@ -48,7 +48,9 @@ All paths below are relative to `/api/v1` (e.g. `POST /api/v1/auth/login`).
 - `POST /api/onboarding-image-upload` (multipart/form-data) fields: `image` (optional file), `image_type` (required when image provided)
 - `POST /api/non_onboarded_store/list` body: `{ "rm_id": "...", "keyword": "...", "page": 1, "limit": 10 }`
 - `POST /api/stores/list` body: `{ "rm_id": "...", "keyword": "...", "status": "...", "page": 1, "limit": 10 }`
-- `POST /api/stores/onboard` body: (same JSON keys as your PHP onboarding)
+- `POST /api/v1/stores/onboard` — add store (same JSON body/response as PHP onboarding)
+- `POST /api/v1/stores/add` — alias of onboard
+- `POST /api/v1/stores/add-store` — alias of onboard
 - `POST /api/rm_checkout` body: `{ "rm_id": "...", "store_id": "...", "checkin_date_time?": "...", "checkout_type?": "manual" }`
 - `POST /api/products/search` body: `{ "store_id": "...", "keyword?": "...", "page?": 1, "limit?": 20 }`
 - `POST /api/products/loose/search` body: `{ "keyword?": "...", "page?": 1, "limit?": 20 }`
