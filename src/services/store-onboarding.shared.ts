@@ -1,4 +1,5 @@
 import { pool } from "../db/mysql";
+import { useProductSchemaV2 } from "../config/schema";
 import { type RowDataPacket } from "mysql2/promise";
 
 export function s(v: unknown) {
@@ -156,6 +157,23 @@ export async function buildStorePayloadContext(data: Record<string, unknown>): P
     const types = business_type.split(",").map((x) => x.trim()).filter(Boolean);
     const found: number[] = [];
     for (const t of types) {
+      if (useProductSchemaV2()) {
+        const [catRows] = await pool.query<CategoryRow[]>(
+          `
+          SELECT id
+          FROM categories
+          WHERE LOWER(name) = LOWER(:title)
+            AND status = 1
+            AND (is_deleted = 0 OR is_deleted IS NULL)
+          LIMIT 1
+          `,
+          { title: t } as any,
+        );
+        if (catRows?.[0]?.id) {
+          found.push(Number(catRows[0].id));
+          continue;
+        }
+      }
       const [catRows] = await pool.query<CategoryRow[]>(
         "SELECT id FROM tbl_category WHERE LOWER(title) = LOWER(:title) LIMIT 1",
         { title: t } as any,
