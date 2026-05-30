@@ -8,13 +8,27 @@ function asUtf8mb4Bin(expr: string) {
 }
 
 function rmIdEqualsSql(column: string, param = ":rm_id") {
-  return `${asUtf8mb4Bin(`TRIM(${column})`)} = ${asUtf8mb4Bin(`TRIM(${param})`)}`;
+  /** Compare trimmed values in app (`s()`); avoid TRIM(column) so indexes apply. */
+  return `${asUtf8mb4Bin(column)} = ${asUtf8mb4Bin(param)}`;
 }
 
 /** RM filter: regional_manager_id OR store_code (app often sends store code as rm_id). */
 function storesRmWhereSql() {
   return `(${rmIdEqualsSql("s.regional_manager_id")} OR ${rmIdEqualsSql("s.store_code")})`;
 }
+
+/** First operating-hours row per store (replaces 4 correlated subqueries per store). */
+const STORE_OPERATING_HOURS_JOIN = `
+  LEFT JOIN (
+    SELECT o1.store_id, o1.opening_time, o1.closing_time, o1.break_start_time, o1.break_end_time
+    FROM store_operating_hours o1
+    INNER JOIN (
+      SELECT store_id, MIN(day_of_week) AS min_day
+      FROM store_operating_hours
+      GROUP BY store_id
+    ) md ON md.store_id = o1.store_id AND md.min_day = o1.day_of_week
+  ) oh ON oh.store_id = s.id
+`;
 
 const STORE_ADDRESS_SQL = `TRIM(BOTH ',' FROM CONCAT_WS(', ',
   CAST(IFNULL(sa.address_line_1, '') AS CHAR CHARACTER SET utf8mb4),
@@ -143,16 +157,50 @@ async function fetchProductStatsLegacy(storeIds: number[]): Promise<Record<numbe
   const attrStatusExpr = "COALESCE(pa.status, '0')";
   const isPendingActive = `(${approvalExpr} NOT IN ('approved') OR ${attrStatusExpr} IN ('0', 0))`;
 
-  const [prodRows] = await pool.query<StatsRow[]>(
-    `
-    SELECT
-      store_id,
-      SUM(CASE WHEN (loose_product = 1 OR loose_product = '1') AND ${listFilter} THEN 1 ELSE 0 END) AS loose_product_count
-    FROM tbl_product
-    WHERE store_id IN (${idList})
-    GROUP BY store_id
-    `,
-  );
+  const [[prodRows], [attrRows], [prodPendingRows]] = await Promise.all([
+    pool.query<StatsRow[]>(
+      `
+      SELECT
+        store_id,
+        SUM(CASE WHEN (loose_product = 1 OR loose_product = '1') AND ${listFilter} THEN 1 ELSE 0 END) AS loose_product_count
+      FROM tbl_product
+      WHERE store_id IN (${idList})
+      GROUP BY store_id
+      `,
+    ),
+    pool.query<StatsRow[]>(
+      `
+      SELECT
+        pa.store_id,
+        SUM(CASE WHEN ${listFilterP} THEN 1 ELSE 0 END) AS attribute_total,
+        SUM(CASE WHEN ${listFilterP} AND ${isPendingActive} THEN 1 ELSE 0 END) AS pending_variant_count
+      FROM tbl_product_attribute pa
+      INNER JOIN tbl_product p ON p.id = pa.product_id AND p.store_id = pa.store_id
+      WHERE pa.store_id IN (${idList})
+        AND ${notDeletedP}
+      GROUP BY pa.store_id
+      `,
+    ),
+    pool.query<StatsRow[]>(
+      `
+      SELECT
+        p.store_id,
+        COUNT(*) AS product_pending_count
+      FROM tbl_product p
+      WHERE p.store_id IN (${idList})
+        AND (p.is_delete = 0 OR p.is_delete IS NULL)
+        AND (
+          LOWER(TRIM(COALESCE(p.approval_status, ''))) NOT IN ('approved')
+          OR (p.status = 0 OR p.status = '0')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM tbl_product_attribute pa
+          WHERE pa.product_id = p.id AND pa.store_id = p.store_id
+        )
+      GROUP BY p.store_id
+      `,
+    ),
+  ]);
 
   for (const pr of prodRows ?? []) {
     const sid = Number(pr.store_id);
@@ -164,20 +212,6 @@ async function fetchProductStatsLegacy(storeIds: number[]): Promise<Record<numbe
     };
   }
 
-  const [attrRows] = await pool.query<StatsRow[]>(
-    `
-    SELECT
-      pa.store_id,
-      SUM(CASE WHEN ${listFilterP} THEN 1 ELSE 0 END) AS attribute_total,
-      SUM(CASE WHEN ${listFilterP} AND ${isPendingActive} THEN 1 ELSE 0 END) AS pending_variant_count
-    FROM tbl_product_attribute pa
-    INNER JOIN tbl_product p ON p.id = pa.product_id AND p.store_id = pa.store_id
-    WHERE pa.store_id IN (${idList})
-      AND ${notDeletedP}
-    GROUP BY pa.store_id
-    `,
-  );
-
   for (const ar of attrRows ?? []) {
     const sid = Number(ar.store_id);
     if (!stats[sid]) {
@@ -186,26 +220,6 @@ async function fetchProductStatsLegacy(storeIds: number[]): Promise<Record<numbe
     stats[sid].attribute_total = Number(ar.attribute_total ?? 0);
     stats[sid].pending_variant_count = Number(ar.pending_variant_count ?? 0);
   }
-
-  const [prodPendingRows] = await pool.query<StatsRow[]>(
-    `
-    SELECT
-      p.store_id,
-      COUNT(*) AS product_pending_count
-    FROM tbl_product p
-    WHERE p.store_id IN (${idList})
-      AND (p.is_delete = 0 OR p.is_delete IS NULL)
-      AND (
-        LOWER(TRIM(COALESCE(p.approval_status, ''))) NOT IN ('approved')
-        OR (p.status = 0 OR p.status = '0')
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM tbl_product_attribute pa
-        WHERE pa.product_id = p.id AND pa.store_id = p.store_id
-      )
-    GROUP BY p.store_id
-    `,
-  );
 
   for (const pp of prodPendingRows ?? []) {
     const sid = Number(pp.store_id);
@@ -239,16 +253,49 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
   const approvalVal = asUtf8mb4Bin("COALESCE(v.approval_status, p.approval_status, 'pending')");
   const isPendingActive = `(${approvalVal} <> ${asUtf8mb4Bin("'approved'")} OR v.status = 0)`;
 
-  const [prodRows] = await pool.query<StatsRow[]>(
-    `
-    SELECT
-      p.store_id,
-      SUM(CASE WHEN p.is_loose_product = 1 AND ${productActive} THEN 1 ELSE 0 END) AS loose_product_count
-    FROM products p
-    WHERE p.store_id IN (${idList})
-    GROUP BY p.store_id
-    `,
-  );
+  const [[prodRows], [attrRows], [prodPendingRows]] = await Promise.all([
+    pool.query<StatsRow[]>(
+      `
+      SELECT
+        p.store_id,
+        SUM(CASE WHEN p.is_loose_product = 1 AND ${productActive} THEN 1 ELSE 0 END) AS loose_product_count
+      FROM products p
+      WHERE p.store_id IN (${idList})
+      GROUP BY p.store_id
+      `,
+    ),
+    pool.query<StatsRow[]>(
+      `
+      SELECT
+        p.store_id,
+        SUM(CASE WHEN ${productActive} AND ${variantActive} THEN 1 ELSE 0 END) AS attribute_total,
+        SUM(CASE WHEN ${productActive} AND ${variantActive} AND ${isPendingActive} THEN 1 ELSE 0 END) AS pending_variant_count
+      FROM product_variants v
+      INNER JOIN products p ON p.id = v.product_id AND p.store_id IN (${idList})
+      WHERE p.store_id IN (${idList})
+      GROUP BY p.store_id
+      `,
+    ),
+    pool.query<StatsRow[]>(
+      `
+      SELECT
+        p.store_id,
+        COUNT(*) AS product_pending_count
+      FROM products p
+      WHERE p.store_id IN (${idList})
+        AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
+        AND (
+          ${asUtf8mb4Bin("COALESCE(p.approval_status, 'pending')")} <> ${asUtf8mb4Bin("'approved'")}
+          OR p.status = 0
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM product_variants v
+          WHERE v.product_id = p.id AND (v.is_deleted = 0 OR v.is_deleted IS NULL) AND v.deleted_at IS NULL
+        )
+      GROUP BY p.store_id
+      `,
+    ),
+  ]);
 
   for (const pr of prodRows ?? []) {
     const sid = Number(pr.store_id);
@@ -260,19 +307,6 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
     };
   }
 
-  const [attrRows] = await pool.query<StatsRow[]>(
-    `
-    SELECT
-      p.store_id,
-      SUM(CASE WHEN ${productActive} AND ${variantActive} THEN 1 ELSE 0 END) AS attribute_total,
-      SUM(CASE WHEN ${productActive} AND ${variantActive} AND ${isPendingActive} THEN 1 ELSE 0 END) AS pending_variant_count
-    FROM product_variants v
-    INNER JOIN products p ON p.id = v.product_id AND p.store_id IN (${idList})
-    WHERE p.store_id IN (${idList})
-    GROUP BY p.store_id
-    `,
-  );
-
   for (const ar of attrRows ?? []) {
     const sid = Number(ar.store_id);
     if (!stats[sid]) {
@@ -281,26 +315,6 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
     stats[sid].attribute_total = Number(ar.attribute_total ?? 0);
     stats[sid].pending_variant_count = Number(ar.pending_variant_count ?? 0);
   }
-
-  const [prodPendingRows] = await pool.query<StatsRow[]>(
-    `
-    SELECT
-      p.store_id,
-      COUNT(*) AS product_pending_count
-    FROM products p
-    WHERE p.store_id IN (${idList})
-      AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
-      AND (
-        ${asUtf8mb4Bin("COALESCE(p.approval_status, 'pending')")} <> ${asUtf8mb4Bin("'approved'")}
-        OR p.status = 0
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM product_variants v
-        WHERE v.product_id = p.id AND (v.is_deleted = 0 OR v.is_deleted IS NULL) AND v.deleted_at IS NULL
-      )
-    GROUP BY p.store_id
-    `,
-  );
 
   for (const pp of prodPendingRows ?? []) {
     const sid = Number(pp.store_id);
@@ -531,41 +545,19 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
     const countFrom = keyword
       ? "stores s LEFT JOIN store_credentials sc ON sc.store_id = s.id"
       : "stores s";
-    const [countRows] = await pool.query<CountRow[]>(
-      `SELECT COUNT(DISTINCT s.id) AS total FROM ${countFrom} WHERE ${whereClause}`,
-      params as any,
-    );
-    const totalRecords = Number(countRows?.[0]?.total ?? 0);
-    const totalPages = limit > 0 ? Math.ceil(totalRecords / limit) : 0;
 
-    const [onboardedRows] = await pool.query<CountRow[]>(
-      `
+    const countSql = `SELECT COUNT(DISTINCT s.id) AS total FROM ${countFrom} WHERE ${whereClause}`;
+    const onboardedSql = `
       SELECT COUNT(*) AS total FROM stores s
       WHERE (s.is_deleted = 0 OR s.is_deleted IS NULL)
         AND ${storesRmWhereSql()}
-      `,
-      { rm_id } as any,
-    );
-    const onboardedCount = Number(onboardedRows?.[0]?.total ?? 0);
-
-    const [nonOnboardedRows] = await pool.query<CountRow[]>(
-      `
+    `;
+    const nonOnboardedSql = `
       SELECT COUNT(*) AS total FROM non_onboarded_store
       WHERE is_deleted = 0
         AND ${rmIdEqualsSql("rm_id")}
-      `,
-      { rm_id } as any,
-    );
-    const nonOnboardedCount = Number(nonOnboardedRows?.[0]?.total ?? 0);
-
-    const counts: Record<string, string> = {
-      onboarded_count: String(onboardedCount),
-      non_onboarded_count: String(nonOnboardedCount),
-      total_count: String(onboardedCount + nonOnboardedCount),
-    };
-
-    const [rows] = await pool.query<StoreRow[]>(
-      `
+    `;
+    const listSql = `
       SELECT
         s.id,
         s.name AS business_name,
@@ -575,14 +567,8 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
         sa.postal_code AS pincode,
         s.location_code AS business_type,
         s.category_ids,
-        (
-          SELECT oh.opening_time FROM store_operating_hours oh
-          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
-        ) AS opentime,
-        (
-          SELECT oh.closing_time FROM store_operating_hours oh
-          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
-        ) AS closetime,
+        oh.opening_time AS opentime,
+        oh.closing_time AS closetime,
         sa.landmark,
         CAST(sa.latitude AS CHAR) AS latitude,
         CAST(sa.longitude AS CHAR) AS longitude,
@@ -620,14 +606,8 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
         sps.additional_price AS extra_charge,
         NULL AS remark,
         s.owner_name,
-        (
-          SELECT oh.break_start_time FROM store_operating_hours oh
-          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
-        ) AS break_start_time,
-        (
-          SELECT oh.break_end_time FROM store_operating_hours oh
-          WHERE oh.store_id = s.id ORDER BY oh.day_of_week LIMIT 1
-        ) AS break_end_time,
+        oh.break_start_time,
+        oh.break_end_time,
         NULL AS aadhar_back,
         s.referral_code AS refercode,
         NULL AS non_onboarded_store_id,
@@ -637,6 +617,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
       LEFT JOIN store_credentials sc ON sc.store_id = s.id
       LEFT JOIN store_addresses sa ON sa.store_id = s.id AND sa.is_default = 1
         AND (sa.is_deleted = 0 OR sa.is_deleted IS NULL)
+      ${STORE_OPERATING_HOURS_JOIN}
       LEFT JOIN store_payment_methods spm ON spm.store_id = s.id AND spm.is_primary = 1
         AND (spm.is_deleted = 0 OR spm.is_deleted IS NULL)
       LEFT JOIN subscription_store_plan p ON s.subscription_plan_id = p.id
@@ -647,9 +628,25 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
       WHERE ${whereClause}
       ORDER BY s.id DESC
       LIMIT :limit OFFSET :offset
-      `,
-      { ...params, limit, offset } as any,
-    );
+    `;
+
+    const [[countRows], [onboardedRows], [nonOnboardedRows], [rows]] = await Promise.all([
+      pool.query<CountRow[]>(countSql, params as any),
+      pool.query<CountRow[]>(onboardedSql, { rm_id } as any),
+      pool.query<CountRow[]>(nonOnboardedSql, { rm_id } as any),
+      pool.query<StoreRow[]>(listSql, { ...params, limit, offset } as any),
+    ]);
+
+    const totalRecords = Number(countRows?.[0]?.total ?? 0);
+    const totalPages = limit > 0 ? Math.ceil(totalRecords / limit) : 0;
+    const onboardedCount = Number(onboardedRows?.[0]?.total ?? 0);
+    const nonOnboardedCount = Number(nonOnboardedRows?.[0]?.total ?? 0);
+
+    const counts: Record<string, string> = {
+      onboarded_count: String(onboardedCount),
+      non_onboarded_count: String(nonOnboardedCount),
+      total_count: String(onboardedCount + nonOnboardedCount),
+    };
 
     const storeIds: number[] = [];
     if (includeProductCounts) {
@@ -745,42 +742,19 @@ export async function storesListService(input: StoresListInput): Promise<Service
   const whereClause = whereParts.join(" AND ");
 
   try {
-    const [countRows] = await pool.query<CountRow[]>(
-      `SELECT COUNT(*) AS total FROM service_details sd WHERE ${whereClause}`,
-      params as any,
-    );
-    const totalRecords = Number(countRows?.[0]?.total ?? 0);
-    const totalPages = limit > 0 ? Math.ceil(totalRecords / limit) : 0;
-
-    const [onboardedRows] = await pool.query<CountRow[]>(
-      `
+    const countSql = `SELECT COUNT(*) AS total FROM service_details sd WHERE ${whereClause}`;
+    const onboardedSql = `
       SELECT COUNT(*) AS total
       FROM service_details
       WHERE ${rmIdEqualsSql("rm_id")}
-      `,
-      { rm_id } as any,
-    );
-    const onboardedCount = Number(onboardedRows?.[0]?.total ?? 0);
-
-    const [nonOnboardedRows] = await pool.query<CountRow[]>(
-      `
+    `;
+    const nonOnboardedSql = `
       SELECT COUNT(*) AS total
       FROM non_onboarded_store
       WHERE is_deleted = 0
         AND ${rmIdEqualsSql("rm_id")}
-      `,
-      { rm_id } as any,
-    );
-    const nonOnboardedCount = Number(nonOnboardedRows?.[0]?.total ?? 0);
-
-    const counts: Record<string, string> = {
-      onboarded_count: String(onboardedCount),
-      non_onboarded_count: String(nonOnboardedCount),
-      total_count: String(onboardedCount + nonOnboardedCount),
-    };
-
-    const [rows] = await pool.query<StoreRow[]>(
-      `
+    `;
+    const listSql = `
       SELECT
         sd.id,
         sd.title AS business_name,
@@ -841,9 +815,25 @@ export async function storesListService(input: StoresListInput): Promise<Service
       WHERE ${whereClause}
       ORDER BY sd.id DESC
       LIMIT :limit OFFSET :offset
-      `,
-      { ...params, limit, offset } as any,
-    );
+    `;
+
+    const [[countRows], [onboardedRows], [nonOnboardedRows], [rows]] = await Promise.all([
+      pool.query<CountRow[]>(countSql, params as any),
+      pool.query<CountRow[]>(onboardedSql, { rm_id } as any),
+      pool.query<CountRow[]>(nonOnboardedSql, { rm_id } as any),
+      pool.query<StoreRow[]>(listSql, { ...params, limit, offset } as any),
+    ]);
+
+    const totalRecords = Number(countRows?.[0]?.total ?? 0);
+    const totalPages = limit > 0 ? Math.ceil(totalRecords / limit) : 0;
+    const onboardedCount = Number(onboardedRows?.[0]?.total ?? 0);
+    const nonOnboardedCount = Number(nonOnboardedRows?.[0]?.total ?? 0);
+
+    const counts: Record<string, string> = {
+      onboarded_count: String(onboardedCount),
+      non_onboarded_count: String(nonOnboardedCount),
+      total_count: String(onboardedCount + nonOnboardedCount),
+    };
 
     const storeIds: number[] = [];
     if (includeProductCounts) {
