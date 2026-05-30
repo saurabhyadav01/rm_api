@@ -47,19 +47,32 @@ export function formatKolkataTimeHms(d: Date): string {
 
 const TIME_ONLY_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
 
-/** MySQL TIME / HH:MM:SS for store hours — Date values from mysql2 → IST wall clock. */
+/** UTC time-of-day (MySQL TIME / driver Date) → IST (+05:30) `HH:MM:SS` for API responses. */
+function utcClockToIstHms(h: number, min: number, sec: number): string {
+  const d = new Date(Date.UTC(1970, 0, 1, h, min, sec));
+  return formatKolkataTimeHms(d);
+}
+
+/**
+ * Store hours on list/search only — DB TIME is stored as UTC clock; display IST (+05:30).
+ * Onboarding/insert keeps raw `parseTimeToHms` values (no conversion on write).
+ */
 export function formatMysqlTimeInKolkata(v: unknown): string {
   if (v === null || v === undefined) return "";
-  if (v instanceof Date) return formatKolkataTimeHms(v);
+  if (v instanceof Date) {
+    return utcClockToIstHms(v.getUTCHours(), v.getUTCMinutes(), v.getUTCSeconds());
+  }
 
   const t = String(v).trim();
   if (!t) return "";
   const m = t.match(TIME_ONLY_RE);
   if (m) {
-    const h = m[1].padStart(2, "0");
-    const min = m[2];
-    const sec = (m[3] ?? "00").padStart(2, "0");
-    return `${h}:${min}:${sec}`.slice(0, 8);
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    const sec = Number(m[3] ?? 0);
+    if (Number.isFinite(h) && Number.isFinite(min) && Number.isFinite(sec)) {
+      return utcClockToIstHms(h, min, sec);
+    }
   }
 
   const parsed = Date.parse(t);
