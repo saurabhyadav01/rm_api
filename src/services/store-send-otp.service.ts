@@ -2,6 +2,7 @@ import { pool } from "../db/mysql";
 import { ensureStoreOtpTable } from "../db/ensure-store-otp-table";
 import { useStoresTable } from "../config/schema";
 import { isSmsConfigured, sendStoreOtpSms, SmsSendError } from "./sms.service";
+import { mobileDigitsSql } from "../utils/phone";
 import { type RowDataPacket } from "mysql2/promise";
 import { kolkataOtpExpiryMeta, OTP_TTL_SECONDS } from "../utils/kolkata-time";
 
@@ -17,10 +18,6 @@ type ServiceResult = {
 
 type IdRow = RowDataPacket & { id: number };
 type OtpVerifyRow = RowDataPacket & { id?: number; status?: number | string | null };
-
-function mobileDigitsSql(column: string) {
-  return `RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${column}, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), '.', ''), '_', ''), 10)`;
-}
 
 function normalizeCcode(ccode: unknown) {
   const raw = String(ccode ?? "91").trim();

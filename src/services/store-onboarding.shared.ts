@@ -1,5 +1,6 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
+import { formatStorePhoneIndia } from "../utils/phone";
 import { type RowDataPacket } from "mysql2/promise";
 
 export function s(v: unknown) {
@@ -21,6 +22,10 @@ export function normalizeStoreInput(data: Record<string, unknown>) {
   if (!data.business_name && data.shop_name) data.business_name = data.shop_name;
   if (!data.mobile && data.phone_no) data.mobile = data.phone_no;
   if (!data.full_address && data.address_line) data.full_address = data.address_line;
+  if (data.mobile) {
+    const formatted = formatStorePhoneIndia(s(data.mobile));
+    if (formatted) data.mobile = formatted;
+  }
 }
 
 export function parseLatLong(input: unknown): { latitude?: string; longitude?: string } {

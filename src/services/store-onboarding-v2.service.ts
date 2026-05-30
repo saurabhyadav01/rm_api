@@ -10,6 +10,7 @@ import {
 } from "./store-onboarding.shared";
 import { resolveOnboardingPlan } from "./plan.service";
 import { sendOnboardingMessages } from "./sms.service";
+import { formatStorePhoneIndia, mobileDigitsSql, storePhoneLast10 } from "../utils/phone";
 import { type PoolConnection, type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 type ServiceResult = {
@@ -108,21 +109,38 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
     };
   }
 
-  const mobile = s(data.mobile);
+  const mobile = formatStorePhoneIndia(s(data.mobile));
+  if (!mobile) {
+    return {
+      httpStatus: 400,
+      body: {
+        success: false,
+        message: "Invalid mobile number. Must be a valid 10-digit India mobile.",
+      },
+    };
+  }
+  data.mobile = mobile;
+
+  const last10 = storePhoneLast10(mobile);
   const business_name = s(data.business_name);
   const email = s(data.email);
 
+  const digits = mobileDigitsSql("sc.phone_number");
   const [existing] = await pool.query<ExistingMobileRow[]>(
     `
     SELECT s.id, s.name
     FROM store_credentials sc
     INNER JOIN stores s ON s.id = sc.store_id
-    WHERE sc.phone_number = :mobile
-      AND (sc.is_deleted = 0 OR sc.is_deleted IS NULL)
+    WHERE (sc.is_deleted = 0 OR sc.is_deleted IS NULL)
       AND (s.is_deleted = 0 OR s.is_deleted IS NULL)
+      AND (
+        sc.phone_number = :mobile
+        OR sc.phone_number LIKE :mobileLike
+        OR ${digits} = :last10
+      )
     LIMIT 1
     `,
-    { mobile } as any,
+    { mobile, mobileLike: `%${last10}`, last10 } as any,
   );
   if (existing?.length) {
     const ex = existing[0];

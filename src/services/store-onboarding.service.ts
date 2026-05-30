@@ -4,6 +4,7 @@ import { resolveOnboardingPlan } from "./plan.service";
 import { sendOnboardingMessages } from "./sms.service";
 import { storeOnboardingV2Service } from "./store-onboarding-v2.service";
 import { resolveDefaultZoneId } from "./store-onboarding.shared";
+import { formatStorePhoneIndia, mobileDigitsSql, storePhoneLast10 } from "../utils/phone";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 type ServiceResult = {
@@ -61,6 +62,10 @@ function normalizeBusinessName(data: Record<string, unknown>) {
   if (!data.business_name && data.shop_name) data.business_name = data.shop_name;
   if (!data.mobile && data.phone_no) data.mobile = data.phone_no;
   if (!data.full_address && data.address_line) data.full_address = data.address_line;
+  if (data.mobile) {
+    const formatted = formatStorePhoneIndia(s(data.mobile));
+    if (formatted) data.mobile = formatted;
+  }
 }
 
 /** PHP strtotime + date('H:i:s') */
@@ -155,12 +160,31 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
     };
   }
 
-  const mobile = s(data.mobile);
+  const mobile = formatStorePhoneIndia(s(data.mobile));
+  if (!mobile) {
+    return {
+      httpStatus: 400,
+      body: {
+        success: false,
+        message: "Invalid mobile number. Must be a valid 10-digit India mobile.",
+      },
+    };
+  }
+  data.mobile = mobile;
+
+  const last10 = storePhoneLast10(mobile);
 
   // Duplicate mobile check
+  const digits = mobileDigitsSql("mobile");
   const [existing] = await pool.query<ExistingMobileRow[]>(
-    "SELECT id, title FROM service_details WHERE mobile = :mobile LIMIT 1",
-    { mobile } as any,
+    `
+    SELECT id, title FROM service_details
+    WHERE mobile = :mobile
+      OR mobile LIKE :mobileLike
+      OR ${digits} = :last10
+    LIMIT 1
+    `,
+    { mobile, mobileLike: `%${last10}`, last10 } as any,
   );
   if (existing?.length) {
     const ex = existing[0];
