@@ -1,11 +1,13 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
 import {
+  fetchProductImagesMap,
   fetchVariantsByProductId,
   mapVariantToLegacyAttribute,
   PRODUCT_TITLE_SQL,
   productImageFromRow,
   productTitleFromRow,
+  resolveProductImagesForList,
 } from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
@@ -106,6 +108,9 @@ async function looseProductsSearchV2(data: any): Promise<Record<string, unknown>
     { ...params, offset, limit } as any,
   );
 
+  const productIds = (products ?? []).map((p) => Number(p.id));
+  const imagesMap = await fetchProductImagesMap(productIds);
+
   const productList: any[] = [];
   for (const product of products ?? []) {
     const variants = await fetchVariantsByProductId(Number(product.id));
@@ -123,7 +128,7 @@ async function looseProductsSearchV2(data: any): Promise<Record<string, unknown>
       title: cleanText(productTitleFromRow(product)),
       loose_product: 1,
       img: productImageFromRow(product),
-      product_images: product.product_images ? JSON.parse(String(product.product_images)) : [],
+      product_images: resolveProductImagesForList(Number(product.id), product, imagesMap),
       description: cleanDescription(product.description),
       status: product.status,
       about_product: parseAboutProductLines(product.about_product),

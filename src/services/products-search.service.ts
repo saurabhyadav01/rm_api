@@ -3,11 +3,13 @@ import { useProductSchemaV2 } from "../config/schema";
 import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import {
   fetchProductCategoryMap,
+  fetchProductImagesMap,
   fetchVariantsByProductId,
   mapVariantToLegacyAttribute,
   PRODUCT_TITLE_SQL,
   productImageFromRow,
   productTitleFromRow,
+  resolveProductImagesForList,
 } from "./product-v2.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
@@ -116,7 +118,10 @@ export async function productsSearchService(data: any): Promise<Record<string, u
     );
 
     const productIds = (products ?? []).map((p) => Number(p.id));
-    const categoryMap = await fetchProductCategoryMap(productIds);
+    const [categoryMap, imagesMap] = await Promise.all([
+      fetchProductCategoryMap(productIds),
+      fetchProductImagesMap(productIds),
+    ]);
 
     const productList: any[] = [];
     for (const product of products ?? []) {
@@ -130,7 +135,7 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       productData.sub_cat_name = cat?.sub_cat_name ?? "";
       productData.title = cleanText(productTitleFromRow(product));
       productData.img = productImageFromRow(product);
-      productData.product_images = product.product_images ? (JSON.parse(String(product.product_images)) ?? []) : [];
+      productData.product_images = resolveProductImagesForList(Number(product.id), product, imagesMap);
       productData.description = cleanDescription(product.description);
       productData.status = product.status ?? "1";
       productData.about_product = parseKeyValueLines(product.about_product);

@@ -1,5 +1,23 @@
 import { pool } from "../db/mysql";
+import { getPublicFileUrl } from "../config/uploads";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
+
+function isHttpUrl(v: string): boolean {
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Relative `images/...` paths → public URL; absolute http(s) URLs unchanged. */
+export function resolveProductImagePublicUrl(imageUrl: unknown): string {
+  const raw = String(imageUrl ?? "").trim();
+  if (!raw) return "";
+  if (isHttpUrl(raw)) return raw;
+  return getPublicFileUrl(raw);
+}
 
 export const PRODUCT_NOT_DELETED = `(p.is_deleted = 0 OR p.is_deleted IS NULL)`;
 export const PRODUCT_ACTIVE = `${PRODUCT_NOT_DELETED} AND (p.status = 1 OR p.status = '1')`;
@@ -112,7 +130,67 @@ export function productTitleFromRow(product: Record<string, unknown>): string {
 }
 
 export function productImageFromRow(product: Record<string, unknown>): string {
-  return String(product.primary_image_url ?? product.img ?? product.image_url ?? "").trim();
+  const raw = String(product.primary_image_url ?? product.img ?? product.image_url ?? "").trim();
+  return resolveProductImagePublicUrl(raw);
+}
+
+type ProductImageRow = RowDataPacket & {
+  product_id: number;
+  image_url: string | null;
+};
+
+/** Gallery images from normalized `product_images` table (v2 schema). */
+export async function fetchProductImagesMap(productIds: number[]): Promise<Map<number, string[]>> {
+  const map = new Map<number, string[]>();
+  const ids = productIds.map((id) => Number(id)).filter((id) => id > 0);
+  if (!ids.length) return map;
+
+  const idList = ids.join(",");
+  const [rows] = await pool.query<ProductImageRow[]>(
+    `
+    SELECT product_id, image_url, display_order
+    FROM product_images
+    WHERE product_id IN (${idList})
+      AND (is_active = 1 OR is_active IS NULL)
+    ORDER BY product_id ASC, display_order ASC, id ASC
+    `,
+  );
+
+  for (const row of rows ?? []) {
+    const pid = Number(row.product_id);
+    const url = resolveProductImagePublicUrl(row.image_url);
+    if (!url) continue;
+    const list = map.get(pid) ?? [];
+    list.push(url);
+    map.set(pid, list);
+  }
+
+  return map;
+}
+
+/** Legacy JSON column on `products` / `tbl_product`, then v2 `product_images` rows. */
+export function resolveProductImagesForList(
+  productId: number,
+  product: Record<string, unknown>,
+  imagesMap: Map<number, string[]>,
+): string[] {
+  const fromTable = imagesMap.get(Number(productId));
+  if (fromTable?.length) return fromTable;
+
+  const legacyRaw = product.product_images;
+  if (legacyRaw) {
+    try {
+      const parsed = JSON.parse(String(legacyRaw)) as unknown;
+      if (Array.isArray(parsed)) {
+        const urls = parsed.map((item) => resolveProductImagePublicUrl(item)).filter(Boolean);
+        if (urls.length) return urls;
+      }
+    } catch {
+      /* ignore invalid JSON */
+    }
+  }
+
+  return [];
 }
 
 /**
