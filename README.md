@@ -51,6 +51,12 @@ Store OTP uses table `tbl_store_otp_verify` (auto-created on first send-otp if m
 
 **Other:** `POST /rm_checkout`, `POST /onboarding-image-upload` (multipart, max **10 MB** per file — `ONBOARDING_IMAGE_MAX_MB`), `GET /health`, `GET /` (route index)
 
+### Performance (DB indexes)
+
+On startup, rm_api runs `ensureRmIndexes()` to create missing indexes for store list, product list/search, RM auth, and checkout queries. Manual SQL (same definitions): `sql/rm_api_performance_indexes.sql`. Microservices migration: `hellochotu_microservices/migrations/versions/081_rm_api_performance_indexes.sql`.
+
+Product list/search endpoints batch-load variants and legacy attributes in one query per page instead of N queries per product.
+
 ### Fix nginx `413 Request Entity Too Large` on image upload
 
 The HTML 413 page from **nginx** means the request never reaches Node. On the server, inside the `server { }` block for `rmapi.hellochotu.com`:

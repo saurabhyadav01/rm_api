@@ -2,7 +2,7 @@ import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
 import {
   fetchProductImagesMap,
-  fetchVariantsByProductId,
+  fetchVariantsByProductIds,
   mapVariantToLegacyAttribute,
   PRODUCT_TITLE_SQL,
   productImageFromRow,
@@ -109,14 +109,16 @@ async function looseProductsSearchV2(data: any): Promise<Record<string, unknown>
   );
 
   const productIds = (products ?? []).map((p) => Number(p.id));
-  const imagesMap = await fetchProductImagesMap(productIds);
+  const [imagesMap, variantsMap] = await Promise.all([
+    fetchProductImagesMap(productIds),
+    fetchVariantsByProductIds(productIds),
+  ]);
 
   const productList: any[] = [];
   for (const product of products ?? []) {
-    const variants = await fetchVariantsByProductId(Number(product.id));
-    const attributes = variants
-      .sort((a, b) => Number(b.id) - Number(a.id))
-      .map((v) => mapVariantToLegacyAttribute(v, { includeId: true }));
+    const variants = (variantsMap.get(Number(product.id)) ?? [])
+      .sort((a, b) => Number(b.id) - Number(a.id));
+    const attributes = variants.map((v) => mapVariantToLegacyAttribute(v, { includeId: true }));
 
     productList.push({
       id: product.id,

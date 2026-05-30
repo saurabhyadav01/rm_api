@@ -4,13 +4,18 @@ import { resolveStoreNumericId } from "../utils/resolve-store-id";
 import {
   fetchProductCategoryMap,
   fetchProductImagesMap,
-  fetchVariantsByProductId,
+  fetchVariantsByProductIds,
   mapVariantToLegacyAttribute,
   PRODUCT_TITLE_SQL,
   productImageFromRow,
   productTitleFromRow,
   resolveProductImagesForList,
 } from "./product-v2.shared";
+import {
+  fetchLegacyAttributesMap,
+  fetchLegacyCategoryNameMap,
+  fetchLegacySubCategoryNameMap,
+} from "./legacy-product-list.shared";
 import { type RowDataPacket } from "mysql2/promise";
 
 function s(v: unknown) {
@@ -118,9 +123,10 @@ export async function productsSearchService(data: any): Promise<Record<string, u
     );
 
     const productIds = (products ?? []).map((p) => Number(p.id));
-    const [categoryMap, imagesMap] = await Promise.all([
+    const [categoryMap, imagesMap, variantsMap] = await Promise.all([
       fetchProductCategoryMap(productIds),
       fetchProductImagesMap(productIds),
+      fetchVariantsByProductIds(productIds),
     ]);
 
     const productList: any[] = [];
@@ -142,7 +148,7 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       productData.product_information = parseKeyValueLines(product.product_information);
       productData.fssai_lic = product.fssai_lic ?? null;
 
-      const variants = await fetchVariantsByProductId(Number(product.id));
+      const variants = variantsMap.get(Number(product.id)) ?? [];
       const attributes = variants.map((v) => mapVariantToLegacyAttribute(v));
       productData.attributes = attributes;
       productData.attribute_count = attributes.length;
@@ -221,20 +227,21 @@ export async function productsSearchService(data: any): Promise<Record<string, u
     ({ ...params, offset, limit } as any),
   );
 
+  const legacyProductIds = (products ?? []).map((p) => Number(p.id)).filter((id) => id > 0);
+  const legacyCatIds = (products ?? []).map((p) => Number(p.cat_id ?? 0)).filter((id) => id > 0);
+  const legacySubCatIds = (products ?? []).map((p) => toInt(p.sub_cat_id, 0)).filter((id) => id > 0);
+  const [legacyCatMap, legacySubCatMap, legacyAttrMap] = await Promise.all([
+    fetchLegacyCategoryNameMap(legacyCatIds),
+    fetchLegacySubCategoryNameMap(legacySubCatIds),
+    fetchLegacyAttributesMap(store_id, legacyProductIds, { activeOnly: true }),
+  ]);
+
   const productList: any[] = [];
 
   for (const product of products ?? []) {
     const cat_id = product.cat_id ? Number(product.cat_id) : 0;
-    let cat_name: string | null = null;
-    if (cat_id > 0) {
-      const [rows] = await pool.query<CategoryRow[]>(
-        "SELECT title FROM tbl_category WHERE id = :id LIMIT 1",
-        { id: cat_id } as any,
-      );
-      cat_name = rows?.[0]?.title ? String(rows[0].title).trim() : null;
-    }
+    const cat_name = cat_id > 0 ? legacyCatMap.get(cat_id) ?? null : null;
 
-    // sub_cat_name from tbl_product_category only
     const stored_sub_cat_id = product.sub_cat_id !== undefined && product.sub_cat_id !== null && String(product.sub_cat_id).trim() !== ""
       ? String(product.sub_cat_id).trim()
       : null;
@@ -245,11 +252,7 @@ export async function productsSearchService(data: any): Promise<Record<string, u
       sub_cat_id = stored_sub_cat_id;
       const subIdInt = toInt(sub_cat_id, 0);
       if (subIdInt > 0) {
-        const [pcRows] = await pool.query<ProductCategoryRow[]>(
-          "SELECT name FROM tbl_product_category WHERE id = :id LIMIT 1",
-          { id: subIdInt } as any,
-        );
-        sub_cat_name = pcRows?.[0]?.name ? String(pcRows[0].name).trim() : "";
+        sub_cat_name = legacySubCatMap.get(subIdInt) ?? "";
       }
     }
 
@@ -271,24 +274,10 @@ export async function productsSearchService(data: any): Promise<Record<string, u
     productData.product_information = parseKeyValueLines(product.product_information);
     productData.fssai_lic = product.fssai_lic ?? null;
 
-    // Attributes
-    const [attrRows] = await pool.query<AttrRow[]>(
-      `
-      SELECT *
-      FROM tbl_product_attribute
-      WHERE product_id = :product_id
-        AND store_id = :store_id
-        AND status = 1
-      ORDER BY id ASC
-      `,
-      {
-        product_id: Number(product.id),
-        store_id,
-      } as any,
-    );
+    const attrRows = legacyAttrMap.get(Number(product.id)) ?? [];
 
     const attributes: any[] = [];
-    for (const attr of attrRows ?? []) {
+    for (const attr of attrRows) {
       attributes.push({
         attribute_id: String(attr.id),
         product_id: String(attr.product_id),

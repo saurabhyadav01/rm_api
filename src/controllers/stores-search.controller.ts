@@ -1,34 +1,8 @@
 import { type Request, type Response } from "express";
-import { storesSearchService, type StoresSearchInput } from "../services/stores-search.service";
+import { storesSearchService } from "../services/stores-search.service";
+import { parseStoresListInput } from "../utils/parse-stores-list-input";
 
 type RawBodyRequest = Request & { rawBody?: string };
-
-function parseSearchBody(req: RawBodyRequest): StoresSearchInput {
-  let body: Record<string, unknown> = {};
-  if (req.body && typeof req.body === "object" && !Array.isArray(req.body)) {
-    body = req.body as Record<string, unknown>;
-  } else {
-    const raw = (req.rawBody ?? "").toString();
-    if (raw.trim()) {
-      try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          body = parsed as Record<string, unknown>;
-        }
-      } catch {
-        body = {};
-      }
-    }
-  }
-
-  return {
-    rm_id: String(body.rm_id ?? ""),
-    keyword: body.keyword,
-    status: body.status,
-    page: body.page,
-    limit: body.limit,
-  };
-}
 
 export async function storesSearch(req: RawBodyRequest, res: Response) {
   if (req.method === "OPTIONS") {
@@ -44,7 +18,16 @@ export async function storesSearch(req: RawBodyRequest, res: Response) {
     });
   }
 
-  const input = parseSearchBody(req);
+  const input = parseStoresListInput(req);
+  if (!String(input.rm_id ?? "").trim()) {
+    return res.status(400).json({
+      success: false,
+      ResponseCode: "401",
+      Result: "false",
+      ResponseMsg: "RM ID is required",
+    });
+  }
+
   const result = await storesSearchService(input);
   return res.status(result.httpStatus).json(result.body);
 }

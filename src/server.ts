@@ -9,6 +9,7 @@ import {
 warnIfRmJwtMissing();
 warnIfLegacyImagesDirMissing();
 
+import { ensureRmIndexes } from "./db/ensure-rm-indexes";
 import { createApp } from "./app";
 import { getApiBaseUrl } from "./config/public-url";
 import { getApiVersion } from "./config/version";
@@ -18,6 +19,9 @@ const port = Number(process.env.PORT ?? 4001);
 const app = createApp();
 
 app.listen(port, () => {
+  void ensureRmIndexes().catch((e) => {
+    console.warn("[rm-indexes] startup ensure failed:", e instanceof Error ? e.message : e);
+  });
   const version = getApiVersion();
   const base = getApiBaseUrl();
   const envFrom = envFileLoadedFrom();
