@@ -18,6 +18,8 @@ CREATE INDEX IF NOT EXISTS idx_products_store_loose_deleted ON products (store_i
 CREATE INDEX IF NOT EXISTS idx_product_variants_product_deleted ON product_variants (product_id, is_deleted, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_product_pricing_variant_active ON product_pricing (variant_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_product_inventory_variant ON product_inventory (variant_id);
+CREATE INDEX IF NOT EXISTS idx_pcm_product_status_primary ON product_category_mappings (product_id, status, is_primary);
+CREATE INDEX IF NOT EXISTS idx_product_images_product_active_order ON product_images (product_id, is_active, display_order);
 
 -- Legacy product tables (RM_SCHEMA_V2=false)
 CREATE INDEX IF NOT EXISTS idx_tbl_product_store_deleted_id ON tbl_product (store_id, is_delete, id);

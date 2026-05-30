@@ -144,6 +144,33 @@ function fmt0(n: number) {
   return n.toFixed(0);
 }
 
+/** v2 list row — metadata joined once; avoids SELECT * and a separate metadata query. */
+const PRODUCT_V2_LIST_SELECT = `
+  SELECT
+    p.id,
+    p.store_id,
+    p.is_loose_product,
+    p.name,
+    p.primary_image_url,
+    p.description,
+    p.status,
+    p.approval_status,
+    pm.about_product,
+    pm.product_information,
+    pm.fssai_license_number AS fssai_lic
+  FROM products p
+  LEFT JOIN product_metadata pm ON pm.product_id = p.id
+`;
+
+/** Legacy list — excludes unused blob column \`product_detail\`. */
+const LEGACY_PRODUCT_LIST_SELECT = `
+  SELECT
+    id, store_id, loose_product, cat_id, sub_cat_id, title, img,
+    product_images, description, status, approval_status,
+    about_product, product_information, fssai_lic
+  FROM tbl_product
+`;
+
 async function productsListWithAttributesV2(data: any): Promise<Record<string, unknown>> {
   const store_id_raw = data && data.store_id !== undefined ? s(data.store_id) : "";
   if (!store_id_raw) {
@@ -167,40 +194,40 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
   if (limit < 20) limit = 20;
   const offset = (page - 1) * limit;
 
-  const [pcRows] = await pool.query<CountRow[]>(
-    `
-    SELECT COUNT(*) AS product_count
-    FROM products p
-    WHERE p.store_id = :store_id
-      AND ${PRODUCT_RM_LIST}
-    `,
-    { store_id } as any,
-  );
+  const [[pcRows], [atRows], [products]] = await Promise.all([
+    pool.query<CountRow[]>(
+      `
+      SELECT COUNT(*) AS product_count
+      FROM products p
+      WHERE p.store_id = :store_id
+        AND ${PRODUCT_RM_LIST}
+      `,
+      { store_id } as any,
+    ),
+    pool.query<CountRow[]>(
+      `
+      SELECT COUNT(*) AS attribute_total
+      FROM product_variants v
+      INNER JOIN products p ON p.id = v.product_id AND p.store_id = :store_id
+      WHERE ${PRODUCT_RM_LIST}
+        AND ${VARIANT_NOT_DELETED}
+      `,
+      { store_id } as any,
+    ),
+    pool.query<ProductRow[]>(
+      `
+      ${PRODUCT_V2_LIST_SELECT}
+      WHERE p.store_id = :store_id
+        AND ${PRODUCT_RM_LIST}
+      ORDER BY p.id DESC
+      LIMIT :offset, :limit
+      `,
+      { store_id, offset, limit } as any,
+    ),
+  ]);
+
   const product_count = Number(pcRows?.[0]?.product_count ?? 0);
-
-  const [atRows] = await pool.query<CountRow[]>(
-    `
-    SELECT COUNT(*) AS attribute_total
-    FROM product_variants v
-    INNER JOIN products p ON p.id = v.product_id AND p.store_id = :store_id
-    WHERE ${PRODUCT_RM_LIST}
-      AND ${VARIANT_NOT_DELETED}
-    `,
-    { store_id } as any,
-  );
   const attribute_total = Number(atRows?.[0]?.attribute_total ?? 0);
-
-  const [products] = await pool.query<ProductRow[]>(
-    `
-    SELECT p.*
-    FROM products p
-    WHERE p.store_id = :store_id
-      AND ${PRODUCT_RM_LIST}
-    ORDER BY p.id DESC
-    LIMIT :offset, :limit
-    `,
-    { store_id, offset, limit } as any,
-  );
 
   const productIds = (products ?? []).map((p) => Number(p.id));
   const [categoryMap, imagesMap, variantsMap] = await Promise.all([
@@ -282,45 +309,43 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
   if (limit < 20) limit = 20;
   const offset = (page - 1) * limit;
 
-  // Product count (non-deleted — includes pending / inactive)
-  const [pcRows] = await pool.query<CountRow[]>(
-    `
-    SELECT COUNT(*) AS product_count
-    FROM tbl_product
-    WHERE store_id = :store_id
-      AND (is_delete = 0 OR is_delete IS NULL)
-    `,
-    { store_id } as any,
-  );
-  const product_count = Number(pcRows?.[0]?.product_count ?? 0);
+  const [[pcRows], [atRows], [products]] = await Promise.all([
+    pool.query<CountRow[]>(
+      `
+      SELECT COUNT(*) AS product_count
+      FROM tbl_product
+      WHERE store_id = :store_id
+        AND (is_delete = 0 OR is_delete IS NULL)
+      `,
+      { store_id } as any,
+    ),
+    pool.query<CountRow[]>(
+      `
+      SELECT COUNT(*) AS attribute_total
+      FROM tbl_product_attribute pa
+      INNER JOIN tbl_product p ON p.id = pa.product_id AND p.store_id = pa.store_id
+      WHERE pa.store_id = :store_id
+        AND (p.is_delete = 0 OR p.is_delete IS NULL)
+        AND COALESCE(pa.is_deleted, 0) = 0
+        AND (pa.deleted_at IS NULL)
+      `,
+      { store_id } as any,
+    ),
+    pool.query<ProductRow[]>(
+      `
+      ${LEGACY_PRODUCT_LIST_SELECT}
+      WHERE store_id = :store_id
+        AND (is_delete = 0 OR is_delete IS NULL)
+      ORDER BY id DESC
+      LIMIT :offset, :limit
+      `,
+      { store_id, offset, limit } as any,
+    ),
+  ]);
 
-  // Attribute total (all variants on non-deleted products, including pending)
-  const [atRows] = await pool.query<CountRow[]>(
-    `
-    SELECT COUNT(*) AS attribute_total
-    FROM tbl_product_attribute pa
-    INNER JOIN tbl_product p ON p.id = pa.product_id AND p.store_id = pa.store_id
-    WHERE pa.store_id = :store_id
-      AND (p.is_delete = 0 OR p.is_delete IS NULL)
-      AND COALESCE(pa.is_deleted, 0) = 0
-      AND (pa.deleted_at IS NULL)
-    `,
-    { store_id } as any,
-  );
+  const product_count = Number(pcRows?.[0]?.product_count ?? 0);
   const attribute_total = Number(atRows?.[0]?.attribute_total ?? 0);
   const total = attribute_total;
-
-  const [products] = await pool.query<ProductRow[]>(
-    `
-    SELECT *
-    FROM tbl_product
-    WHERE store_id = :store_id
-      AND (is_delete = 0 OR is_delete IS NULL)
-    ORDER BY id DESC
-    LIMIT :offset, :limit
-    `,
-    { store_id, offset, limit } as any,
-  );
 
   const legacyProductIds = (products ?? []).map((p) => Number(p.id)).filter((id) => id > 0);
   const legacyCatIds = (products ?? [])

@@ -22,6 +22,16 @@ const RM_INDEXES: { table: string; name: string; columns: string }[] = [
   },
   { table: "product_pricing", name: "idx_product_pricing_variant_active", columns: "variant_id, is_active" },
   { table: "product_inventory", name: "idx_product_inventory_variant", columns: "variant_id" },
+  {
+    table: "product_category_mappings",
+    name: "idx_pcm_product_status_primary",
+    columns: "product_id, status, is_primary",
+  },
+  {
+    table: "product_images",
+    name: "idx_product_images_product_active_order",
+    columns: "product_id, is_active, display_order",
+  },
   { table: "tbl_product", name: "idx_tbl_product_store_deleted_id", columns: "store_id, is_delete, id" },
   {
     table: "tbl_product",

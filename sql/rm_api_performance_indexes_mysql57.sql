@@ -50,6 +50,8 @@ CALL sp_rm_add_index_if_missing('products', 'idx_products_store_loose_deleted', 
 CALL sp_rm_add_index_if_missing('product_variants', 'idx_product_variants_product_deleted', 'product_id, is_deleted, deleted_at');
 CALL sp_rm_add_index_if_missing('product_pricing', 'idx_product_pricing_variant_active', 'variant_id, is_active');
 CALL sp_rm_add_index_if_missing('product_inventory', 'idx_product_inventory_variant', 'variant_id');
+CALL sp_rm_add_index_if_missing('product_category_mappings', 'idx_pcm_product_status_primary', 'product_id, status, is_primary');
+CALL sp_rm_add_index_if_missing('product_images', 'idx_product_images_product_active_order', 'product_id, is_active, display_order');
 
 -- Legacy (skip if table missing — procedure handles it)
 CALL sp_rm_add_index_if_missing('tbl_product', 'idx_tbl_product_store_deleted_id', 'store_id, is_delete, id');
