@@ -3,6 +3,7 @@ import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
 import {
   collectAttributesInput,
+  resolveAttributeIdFromBody,
   parseAttributePricing,
   resolveAndSaveImage,
   resolveAttrImage,
@@ -116,7 +117,7 @@ async function upsertAttributeLegacy(
 ) {
   const pricing = parseAttributePricing(attr);
   const attr_image = await resolveAttrImage(attr, productImagePath);
-  const attribute_id = s(attr.attribute_id);
+  const attribute_id = resolveAttributeIdFromBody(attr);
 
   if (attribute_id) {
     await pool.query(
@@ -131,7 +132,9 @@ async function upsertAttributeLegacy(
         subscription_required = :subscription_required,
         attr_image = :attr_image,
         discounted_price = :discounted_price,
-        status = :status
+        status = :status,
+        is_deleted = 0,
+        deleted_at = NULL
       WHERE id = :attribute_id AND product_id = :product_id AND store_id = :store_id
       `,
       {
@@ -190,15 +193,19 @@ async function upsertAttributeV2(
 ) {
   const pricing = parseAttributePricing(attr);
   const attr_image = await resolveAttrImage(attr, productImagePath);
-  const attribute_id = s(attr.attribute_id);
-  const storeIdNum = Number(store_id);
+  const attribute_id = resolveAttributeIdFromBody(attr);
 
   if (attribute_id) {
     const vid = Number(attribute_id);
     await pool.query(
       `
       UPDATE product_variants
-      SET variant_name = :title, variant_image_url = :attr_image, status = :status
+      SET
+        variant_name = :title,
+        variant_image_url = :attr_image,
+        status = :status,
+        is_deleted = 0,
+        deleted_at = NULL
       WHERE id = :attribute_id AND product_id = :product_id
       `,
       {
@@ -268,6 +275,80 @@ async function upsertAttributeV2(
   await insertVariantInventoryV2(product_id, variantId, stock);
 
   return variantId;
+}
+
+/** Body `attributes` is the full variant set — remove any others for this product. */
+async function softDeleteVariantsNotInList(
+  product_id: number,
+  store_id: string,
+  keepIds: number[],
+): Promise<void> {
+  const keep = [...new Set(keepIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+
+  if (useProductSchemaV2()) {
+    if (keep.length === 0) {
+      await pool.query(
+        `
+        UPDATE product_variants
+        SET is_deleted = 1, status = 0, deleted_at = UTC_TIMESTAMP()
+        WHERE product_id = :product_id
+          AND COALESCE(is_deleted, 0) = 0
+        `,
+        { product_id } as any,
+      );
+      return;
+    }
+
+    const placeholders = keep.map((_, i) => `:keep${i}`).join(", ");
+    const replacements: Record<string, unknown> = { product_id };
+    keep.forEach((id, i) => {
+      replacements[`keep${i}`] = id;
+    });
+
+    await pool.query(
+      `
+      UPDATE product_variants
+      SET is_deleted = 1, status = 0, deleted_at = UTC_TIMESTAMP()
+      WHERE product_id = :product_id
+        AND COALESCE(is_deleted, 0) = 0
+        AND id NOT IN (${placeholders})
+      `,
+      replacements as any,
+    );
+    return;
+  }
+
+  const storeIdNum = Number(store_id);
+  if (keep.length === 0) {
+    await pool.query(
+      `
+      UPDATE tbl_product_attribute
+      SET is_deleted = 1, deleted_at = UTC_TIMESTAMP(), status = 0
+      WHERE product_id = :product_id AND store_id = :store_id
+        AND COALESCE(is_deleted, 0) = 0
+      `,
+      { product_id, store_id: storeIdNum } as any,
+    );
+    return;
+  }
+
+  const placeholders = keep.map((_, i) => `:keep${i}`).join(", ");
+  const replacements: Record<string, unknown> = { product_id, store_id: storeIdNum };
+  keep.forEach((id, i) => {
+    replacements[`keep${i}`] = id;
+  });
+
+  await pool.query(
+    `
+    UPDATE tbl_product_attribute
+    SET is_deleted = 1, deleted_at = UTC_TIMESTAMP(), status = 0
+    WHERE product_id = :product_id
+      AND store_id = :store_id
+      AND COALESCE(is_deleted, 0) = 0
+      AND id NOT IN (${placeholders})
+    `,
+    replacements as any,
+  );
 }
 
 export async function productsUpdateWithAttributesService(data: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -348,6 +429,7 @@ export async function productsUpdateWithAttributesService(data: Record<string, u
     };
   }
 
+  const explicitAttributesArray = Array.isArray(data.attributes);
   const attributesInput = collectAttributesInput(data);
   const attribute_results: Record<string, unknown>[] = [];
   const attribute_ids: number[] = [];
@@ -363,7 +445,9 @@ export async function productsUpdateWithAttributesService(data: Record<string, u
       attribute_ids.push(attribute_id);
       attribute_results.push({
         Result: "true",
-        ResponseMsg: s(attr.attribute_id) ? "Attribute updated successfully" : "Attribute added successfully",
+        ResponseMsg: resolveAttributeIdFromBody(attr)
+          ? "Attribute updated successfully"
+          : "Attribute added successfully",
         attribute_id,
         attribute_title: s(attr.title) || s(attr.mtype) || "Default",
         attribute_image_received: true,
@@ -376,6 +460,22 @@ export async function productsUpdateWithAttributesService(data: Record<string, u
         ResponseMsg: "Failed to update attribute",
         index,
       });
+    }
+  }
+
+  if (explicitAttributesArray && allAttrSuccess) {
+    try {
+      await softDeleteVariantsNotInList(product_id, String(storeIdNum), attribute_ids);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        ResponseCode: "500",
+        Result: "false",
+        ResponseMsg: `Product updated but failed to remove old variants: ${msg}`,
+        product_id,
+        store_id,
+        attribute_ids,
+      };
     }
   }
 

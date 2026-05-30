@@ -1,6 +1,11 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2, useStoresTable } from "../config/schema";
 import { type RowDataPacket } from "mysql2/promise";
+import {
+  formatMysqlDateTimeInKolkata,
+  formatMysqlTimeInKolkata,
+  mysqlDatetimeIstSql,
+} from "../utils/kolkata-time";
 
 /** Cast text to utf8mb4_bin so comparisons never mix utf8mb3 / utf8mb4 collations. */
 function asUtf8mb4Bin(expr: string) {
@@ -338,10 +343,7 @@ async function fetchProductStatsV2(storeIds: number[]): Promise<Record<number, P
 /** mysqli-style: almost all columns are strings in JSON (matches legacy PHP store list). */
 function phpStr(v: unknown): string {
   if (v === null || v === undefined) return "";
-  if (v instanceof Date) {
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())} ${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
-  }
+  if (v instanceof Date) return formatMysqlDateTimeInKolkata(v) ?? "";
   return String(v);
 }
 
@@ -350,22 +352,18 @@ function phpNullableStr(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   const t = String(v).trim();
   if (t === "") return null;
-  if (v instanceof Date) {
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())} ${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
-  }
+  if (v instanceof Date) return formatMysqlDateTimeInKolkata(v);
   return String(v);
 }
 
 function phpTimeStr(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  if (v instanceof Date) {
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}`;
-  }
-  const t = String(v).trim();
-  if (!t) return "";
-  return t.length >= 8 ? t.slice(0, 8) : t;
+  return formatMysqlTimeInKolkata(v);
+}
+
+function phpNullableTimeStr(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const formatted = formatMysqlTimeInKolkata(v);
+  return formatted === "" ? null : formatted;
 }
 
 function phpDecimalStr(v: unknown): string {
@@ -438,8 +436,8 @@ function formatPhpStoreListItem(row: StoreRow, ps: ProductStats | null) {
     remark: phpStr(row.remark),
     owner_name: owner || "N/A",
     refercode: phpStr(row.refercode),
-    break_start_time: phpNullableStr(row.break_start_time),
-    break_end_time: phpNullableStr(row.break_end_time),
+    break_start_time: phpNullableTimeStr(row.break_start_time),
+    break_end_time: phpNullableTimeStr(row.break_end_time),
     aadhar_back: phpNullableStr(row.aadhar_back),
     store_type: nosId ? "non_onboard_store" : "onboard_store",
     non_onboarded_store_id: nosId,
@@ -612,7 +610,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
         s.referral_code AS refercode,
         NULL AS non_onboarded_store_id,
         NULL AS non_onboarded_date,
-        s.created_at AS created_at
+        ${mysqlDatetimeIstSql("s.created_at")} AS created_at
       FROM stores s
       LEFT JOIN store_credentials sc ON sc.store_id = s.id
       LEFT JOIN store_addresses sa ON sa.store_id = s.id AND sa.is_default = 1
@@ -808,8 +806,8 @@ export async function storesListService(input: StoresListInput): Promise<Service
         sd.aadhar_back,
         sd.refercode,
         sd.non_onboarded_store_id,
-        sd.non_onboarded_date,
-        sd.created_at AS created_at
+        ${mysqlDatetimeIstSql("sd.non_onboarded_date")} AS non_onboarded_date,
+        ${mysqlDatetimeIstSql("sd.created_at")} AS created_at
       FROM service_details sd
       LEFT JOIN tbl_joining_plan p ON sd.plan_id = p.id
       WHERE ${whereClause}

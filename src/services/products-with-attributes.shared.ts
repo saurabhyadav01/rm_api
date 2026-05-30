@@ -123,6 +123,11 @@ export async function resolveAttrImage(attr: Record<string, unknown>, productIma
   return attrImageInput;
 }
 
+/** Variant id from update body (`attribute_id`, `id`, or `variant_id`). */
+export function resolveAttributeIdFromBody(attr: Record<string, unknown>): string {
+  return s(attr.attribute_id) || s(attr.id) || s(attr.variant_id);
+}
+
 export function collectAttributesInput(data: Record<string, unknown>): Record<string, unknown>[] {
   if (Array.isArray(data.attributes) && data.attributes.length) {
     return data.attributes as Record<string, unknown>[];

@@ -38,13 +38,19 @@ export function verifyOtp(phone: string, otp: string): boolean {
   return ok;
 }
 
-export function getOtpMeta(phone: string): { otpId: number; expiresInSeconds: number; sentCount: number } | null {
+export function getOtpMeta(phone: string): {
+  otpId: number;
+  expiresInSeconds: number;
+  expiresAtMs: number;
+  sentCount: number;
+} | null {
   const record = store.get(phone);
   if (!record) return null;
   const remainingMs = Math.max(0, record.expiresAtMs - now());
   return {
     otpId: record.otpId,
     expiresInSeconds: Math.ceil(remainingMs / 1000),
+    expiresAtMs: record.expiresAtMs,
     sentCount: record.sentCount,
   };
 }

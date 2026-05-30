@@ -24,6 +24,12 @@ export const PRODUCT_ACTIVE = `${PRODUCT_NOT_DELETED} AND (p.status = 1 OR p.sta
 /** RM catalog: all non-deleted products (includes pending / inactive status). */
 export const PRODUCT_RM_LIST = PRODUCT_NOT_DELETED;
 
+/** Non-deleted variants (`v` alias) — matches store dashboard / hellochotu soft-delete. */
+export const VARIANT_NOT_DELETED = `
+  COALESCE(v.is_deleted, 0) = 0
+  AND (v.deleted_at IS NULL)
+`;
+
 /** DB column for product title (microservices: `name`, legacy: `title`). */
 export const PRODUCT_TITLE_SQL = "COALESCE(p.name, p.title)";
 
@@ -216,8 +222,7 @@ const VARIANT_LIST_SELECT = `
   FROM product_variants v
   LEFT JOIN product_inventory inv ON inv.variant_id = v.id
   LEFT JOIN product_pricing pr ON pr.variant_id = v.id AND (pr.is_active = 1 OR pr.is_active IS NULL)
-  WHERE (v.is_deleted = 0 OR v.is_deleted IS NULL)
-    AND (v.deleted_at IS NULL)
+  WHERE ${VARIANT_NOT_DELETED}
 `;
 
 /** Batch load variants for many products — one query instead of N. */
@@ -231,8 +236,18 @@ export async function fetchVariantsByProductIds(productIds: number[]): Promise<M
     `${VARIANT_LIST_SELECT} AND v.product_id IN (${idList}) ORDER BY v.product_id ASC, v.id ASC`,
   );
 
+  const seenByProduct = new Map<number, Set<number>>();
   for (const row of variants ?? []) {
     const pid = Number(row.product_id);
+    const vid = Number(row.id);
+    if (!Number.isFinite(pid) || !Number.isFinite(vid)) continue;
+    let seen = seenByProduct.get(pid);
+    if (!seen) {
+      seen = new Set<number>();
+      seenByProduct.set(pid, seen);
+    }
+    if (seen.has(vid)) continue;
+    seen.add(vid);
     const list = map.get(pid) ?? [];
     list.push(row);
     map.set(pid, list);

@@ -7,6 +7,7 @@ import {
   fetchVariantsByProductIds,
   mapVariantToLegacyAttribute,
   PRODUCT_RM_LIST,
+  VARIANT_NOT_DELETED,
   productImageFromRow,
   productTitleFromRow,
   resolveProductImagesForList,
@@ -183,8 +184,7 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
     FROM product_variants v
     INNER JOIN products p ON p.id = v.product_id AND p.store_id = :store_id
     WHERE ${PRODUCT_RM_LIST}
-      AND (v.is_deleted = 0 OR v.is_deleted IS NULL)
-      AND v.deleted_at IS NULL
+      AND ${VARIANT_NOT_DELETED}
     `,
     { store_id } as any,
   );
@@ -302,6 +302,8 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     INNER JOIN tbl_product p ON p.id = pa.product_id AND p.store_id = pa.store_id
     WHERE pa.store_id = :store_id
       AND (p.is_delete = 0 OR p.is_delete IS NULL)
+      AND COALESCE(pa.is_deleted, 0) = 0
+      AND (pa.deleted_at IS NULL)
     `,
     { store_id } as any,
   );

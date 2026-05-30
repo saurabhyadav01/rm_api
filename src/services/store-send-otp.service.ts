@@ -3,6 +3,7 @@ import { ensureStoreOtpTable } from "../db/ensure-store-otp-table";
 import { useStoresTable } from "../config/schema";
 import { isSmsConfigured, sendStoreOtpSms, SmsSendError } from "./sms.service";
 import { type RowDataPacket } from "mysql2/promise";
+import { kolkataOtpExpiryMeta, OTP_TTL_SECONDS } from "../utils/kolkata-time";
 
 export type StoreSendOtpInput = {
   mobile: string;
@@ -86,15 +87,25 @@ async function upsertStoreOtp(mobile: string, ccodeWithPlus: string, otp: string
   const existing = await getOtpVerifyRow(mobile);
   if (existing?.id) {
     const [result] = await pool.query(
-      `UPDATE tbl_store_otp_verify SET otp = :otp, ccode = :ccode, status = 0 WHERE mobile = :mobile`,
-      { otp, ccode: ccodeWithPlus, mobile } as any,
+      `
+      UPDATE tbl_store_otp_verify
+      SET otp = :otp,
+          ccode = :ccode,
+          status = 0,
+          otp_expires_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL :ttl SECOND)
+      WHERE mobile = :mobile
+      `,
+      { otp, ccode: ccodeWithPlus, mobile, ttl: OTP_TTL_SECONDS } as any,
     );
     return (result as { affectedRows?: number }).affectedRows !== 0;
   }
 
   const [result] = await pool.query(
-    `INSERT INTO tbl_store_otp_verify (mobile, ccode, otp, status) VALUES (:mobile, :ccode, :otp, 0)`,
-    { mobile, ccode: ccodeWithPlus, otp } as any,
+    `
+    INSERT INTO tbl_store_otp_verify (mobile, ccode, otp, status, otp_expires_at)
+    VALUES (:mobile, :ccode, :otp, 0, DATE_ADD(UTC_TIMESTAMP(), INTERVAL :ttl SECOND))
+    `,
+    { mobile, ccode: ccodeWithPlus, otp, ttl: OTP_TTL_SECONDS } as any,
   );
   return ((result as { affectedRows?: number }).affectedRows ?? 0) > 0;
 }
@@ -198,6 +209,8 @@ export async function storeSendOtpService(input: StoreSendOtpInput): Promise<Ser
       console.warn("[rm] store OTP SMS skipped (RM_ALLOW_OTP_WITHOUT_SMS=true)", { mobile, otp });
     }
 
+    const expiry = kolkataOtpExpiryMeta(OTP_TTL_SECONDS);
+
     return {
       httpStatus: 200,
       body: {
@@ -206,6 +219,8 @@ export async function storeSendOtpService(input: StoreSendOtpInput): Promise<Ser
         ResponseMsg: "OTP sent successfully to your mobile number! Valid for 5 minutes.",
         ccode: actualCcode,
         mobile,
+        expires_in: expiry.expiresInSeconds,
+        expires_at: expiry.expires_at,
       },
     };
   } catch (e) {

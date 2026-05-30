@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS `tbl_store_otp_verify` (
   `ccode` varchar(10) NOT NULL DEFAULT '+91',
   `otp` varchar(10) NOT NULL DEFAULT '0',
   `status` tinyint NOT NULL DEFAULT 0 COMMENT '0=pending OTP, 1=verified/used',
+  `otp_expires_at` datetime NULL DEFAULT NULL COMMENT 'UTC expiry (5 min after send)',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

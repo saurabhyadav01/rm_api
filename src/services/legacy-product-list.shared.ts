@@ -53,6 +53,8 @@ export async function fetchLegacyAttributesMap(
     FROM tbl_product_attribute
     WHERE store_id = :store_id
       AND product_id IN (${ids.join(",")})
+      AND COALESCE(is_deleted, 0) = 0
+      AND (deleted_at IS NULL)
       ${statusFilter}
     ORDER BY product_id ASC, id DESC
     `,

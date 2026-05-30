@@ -5,6 +5,7 @@ import { findRaIdByFranchiseeId } from "../repositories/franchisee.repo";
 import { signRmToken } from "../services/jwt.service";
 import { generateOtp, getOtpMeta, verifyOtp } from "../services/otp.service";
 import { isSmsConfigured, sendOtpSms, SmsSendError } from "../services/sms.service";
+import { formatKolkataDateTime } from "../utils/kolkata-time";
 
 function maskPhone(phone: string): string {
   const p = phone.trim();
@@ -91,7 +92,7 @@ export async function requestOtp(req: Request, res: Response) {
     });
   }
 
-  const { otp } = generateOtp(rm.phone, 300);
+  const { otp, expiresAtMs } = generateOtp(rm.phone, 300);
   const lang = parsed.data.lang ?? "en";
 
   if (isSmsConfigured()) {
@@ -117,6 +118,10 @@ export async function requestOtp(req: Request, res: Response) {
   const meta = getOtpMeta(rm.phone);
   const otpId = meta?.otpId ?? 0;
   const expiresIn = meta?.expiresInSeconds ?? 300;
+  const expiresAt =
+    meta?.expiresAtMs != null
+      ? formatKolkataDateTime(new Date(meta.expiresAtMs))
+      : formatKolkataDateTime(new Date(expiresAtMs));
   const sentCount = meta?.sentCount ?? 1;
   const MAX_SEND = 5;
   const remainingAttempts = Math.max(0, MAX_SEND - sentCount);
@@ -128,6 +133,7 @@ export async function requestOtp(req: Request, res: Response) {
     data: {
       otp_id: otpId,
       expires_in: expiresIn,
+      expires_at: expiresAt,
       phone: maskPhone(rm.phone),
       otp_sent_count: sentCount,
       remaining_attempts: remainingAttempts,

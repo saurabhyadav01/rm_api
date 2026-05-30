@@ -2,6 +2,7 @@ import { pool } from "../db/mysql";
 import { ensureStoreOtpTable } from "../db/ensure-store-otp-table";
 import { signStoreOtpToken } from "./jwt.service";
 import { type RowDataPacket } from "mysql2/promise";
+import { isUtcMysqlDatetimeExpired } from "../utils/kolkata-time";
 
 export type StoreVerifyOtpInput = {
   mobile: string;
@@ -19,6 +20,7 @@ type ServiceResult = {
 type OtpRow = RowDataPacket & {
   otp: string | null;
   status: number | string | null;
+  otp_expires_at?: Date | string | null;
 };
 
 type SettingRow = RowDataPacket & { currency: string | null };
@@ -47,7 +49,7 @@ async function fetchCurrency(): Promise<string> {
 
 async function getOtpRow(mobile: string): Promise<OtpRow | null> {
   const [rows] = await pool.query<OtpRow[]>(
-    `SELECT otp, status FROM tbl_store_otp_verify WHERE mobile = :mobile LIMIT 1`,
+    `SELECT otp, status, otp_expires_at FROM tbl_store_otp_verify WHERE mobile = :mobile LIMIT 1`,
     { mobile } as any,
   );
   return rows?.[0] ?? null;
@@ -59,6 +61,7 @@ async function markOtpUsed(mobile: string, otp: string): Promise<boolean> {
     UPDATE tbl_store_otp_verify
     SET otp = '0', status = 1
     WHERE mobile = :mobile AND otp = :otp AND status = 0
+      AND (otp_expires_at IS NULL OR otp_expires_at >= UTC_TIMESTAMP())
     `,
     { mobile, otp } as any,
   );
@@ -115,6 +118,10 @@ export async function storeVerifyOtpService(input: StoreVerifyOtpInput): Promise
 
     if (!storedOtp || storedOtp === "0") {
       return fail("401", "This OTP has already been used!");
+    }
+
+    if (otpRow.otp_expires_at != null && isUtcMysqlDatetimeExpired(otpRow.otp_expires_at)) {
+      return fail("401", "OTP has expired! Please request a new OTP.");
     }
 
     if (otp !== storedOtp) {
