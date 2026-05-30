@@ -3,6 +3,7 @@ import { useStoresTable } from "../config/schema";
 import { resolveOnboardingPlan } from "./plan.service";
 import { sendOnboardingMessages } from "./sms.service";
 import { storeOnboardingV2Service } from "./store-onboarding-v2.service";
+import { resolveDefaultZoneId } from "./store-onboarding.shared";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 type ServiceResult = {
@@ -186,10 +187,8 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
   const opentime = parseTimeToHms(data.opentime, "09:00:00");
   const closetime = parseTimeToHms(data.closetime, "22:00:00");
 
-  // zone_id lookup (India)
-  let zoneId = 1;
-  const [zoneRows] = await pool.query<ZoneRow[]>("SELECT id FROM zones WHERE LOWER(title) LIKE '%india%' LIMIT 1");
-  if (zoneRows?.[0]?.id) zoneId = Number(zoneRows[0].id);
+  // zone_id lookup (India) — optional legacy table
+  const zoneId = await resolveDefaultZoneId();
 
   // store master defaults
   const storeMasterDefaults = {

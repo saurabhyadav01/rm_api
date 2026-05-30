@@ -63,6 +63,19 @@ type StoreMasterRow = RowDataPacket & {
 };
 type CategoryRow = RowDataPacket & { id: number };
 
+/** Legacy `zones` table may be absent on production v2 DB — default zone_id = 1. */
+export async function resolveDefaultZoneId(): Promise<number> {
+  try {
+    const [zoneRows] = await pool.query<ZoneRow[]>(
+      "SELECT id FROM zones WHERE LOWER(title) LIKE '%india%' LIMIT 1",
+    );
+    if (zoneRows?.[0]?.id) return Number(zoneRows[0].id);
+  } catch {
+    // zones table not present on v2 production DB
+  }
+  return 1;
+}
+
 export type StorePayloadContext = {
   ra_id: string;
   fr_id: string;
@@ -105,10 +118,7 @@ export async function buildStorePayloadContext(data: Record<string, unknown>): P
 
   const opentime = parseTimeToHms(data.opentime, "09:00:00");
   const closetime = parseTimeToHms(data.closetime, "22:00:00");
-
-  let zoneId = 1;
-  const [zoneRows] = await pool.query<ZoneRow[]>("SELECT id FROM zones WHERE LOWER(title) LIKE '%india%' LIMIT 1");
-  if (zoneRows?.[0]?.id) zoneId = Number(zoneRows[0].id);
+  const zoneId = await resolveDefaultZoneId();
 
   const storeMasterDefaults = {
     slogan: "Fresh & Fast",
@@ -123,26 +133,30 @@ export async function buildStorePayloadContext(data: Record<string, unknown>): P
   if (business_type) {
     const first = business_type.split(",")[0]?.trim() ?? "";
     if (first) {
-      const [masterRows] = await pool.query<StoreMasterRow[]>(
-        `
-        SELECT slogan_title, slogan_subtitle, tag, short_description, cancel_policy, commission
-        FROM tbl_store_master
-        WHERE category_title = :category_title
-        LIMIT 1
-        `,
-        { category_title: first } as any,
-      );
-      const master = masterRows?.[0];
-      if (master) {
-        if (master.slogan_title) storeMasterDefaults.slogan = master.slogan_title;
-        if (master.slogan_subtitle) storeMasterDefaults.slogan_title = master.slogan_subtitle;
-        if (master.tag) storeMasterDefaults.sdesc = master.tag;
-        if (master.short_description) storeMasterDefaults.cdesc = master.short_description;
-        if (master.cancel_policy) storeMasterDefaults.cancle_policy = master.cancel_policy;
-        if (master.commission !== null && master.commission !== undefined && s(master.commission) !== "") {
-          const c = Number(master.commission);
-          if (Number.isFinite(c)) storeMasterDefaults.commission = c;
+      try {
+        const [masterRows] = await pool.query<StoreMasterRow[]>(
+          `
+          SELECT slogan_title, slogan_subtitle, tag, short_description, cancel_policy, commission
+          FROM tbl_store_master
+          WHERE category_title = :category_title
+          LIMIT 1
+          `,
+          { category_title: first } as any,
+        );
+        const master = masterRows?.[0];
+        if (master) {
+          if (master.slogan_title) storeMasterDefaults.slogan = master.slogan_title;
+          if (master.slogan_subtitle) storeMasterDefaults.slogan_title = master.slogan_subtitle;
+          if (master.tag) storeMasterDefaults.sdesc = master.tag;
+          if (master.short_description) storeMasterDefaults.cdesc = master.short_description;
+          if (master.cancel_policy) storeMasterDefaults.cancle_policy = master.cancel_policy;
+          if (master.commission !== null && master.commission !== undefined && s(master.commission) !== "") {
+            const c = Number(master.commission);
+            if (Number.isFinite(c)) storeMasterDefaults.commission = c;
+          }
         }
+      } catch {
+        // tbl_store_master optional on v2 production DB
       }
     }
   }
@@ -158,27 +172,35 @@ export async function buildStorePayloadContext(data: Record<string, unknown>): P
     const found: number[] = [];
     for (const t of types) {
       if (useProductSchemaV2()) {
-        const [catRows] = await pool.query<CategoryRow[]>(
-          `
-          SELECT id
-          FROM categories
-          WHERE LOWER(name) = LOWER(:title)
-            AND status = 1
-            AND (is_deleted = 0 OR is_deleted IS NULL)
-          LIMIT 1
-          `,
-          { title: t } as any,
-        );
-        if (catRows?.[0]?.id) {
-          found.push(Number(catRows[0].id));
-          continue;
+        try {
+          const [catRows] = await pool.query<CategoryRow[]>(
+            `
+            SELECT id
+            FROM categories
+            WHERE LOWER(name) = LOWER(:title)
+              AND status = 1
+              AND (is_deleted = 0 OR is_deleted IS NULL)
+            LIMIT 1
+            `,
+            { title: t } as any,
+          );
+          if (catRows?.[0]?.id) {
+            found.push(Number(catRows[0].id));
+            continue;
+          }
+        } catch {
+          // categories lookup failed — try legacy table below
         }
       }
-      const [catRows] = await pool.query<CategoryRow[]>(
-        "SELECT id FROM tbl_category WHERE LOWER(title) = LOWER(:title) LIMIT 1",
-        { title: t } as any,
-      );
-      if (catRows?.[0]?.id) found.push(Number(catRows[0].id));
+      try {
+        const [catRows] = await pool.query<CategoryRow[]>(
+          "SELECT id FROM tbl_category WHERE LOWER(title) = LOWER(:title) LIMIT 1",
+          { title: t } as any,
+        );
+        if (catRows?.[0]?.id) found.push(Number(catRows[0].id));
+      } catch {
+        // tbl_category optional on v2 production DB
+      }
     }
     if (found.length) categoryIds = found.join(",");
   }
