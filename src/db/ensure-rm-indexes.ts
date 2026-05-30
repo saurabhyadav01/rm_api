@@ -1,4 +1,5 @@
 import { pool } from "./mysql";
+import type { RowDataPacket } from "mysql2/promise";
 
 /** RM API query patterns — keep in sync with sql/rm_api_performance_indexes.sql */
 const RM_INDEXES: { table: string; name: string; columns: string }[] = [
@@ -44,10 +45,33 @@ let ensuring: Promise<void> | null = null;
 
 async function createIndexSafe(table: string, name: string, columns: string): Promise<void> {
   try {
-    await pool.query(`CREATE INDEX IF NOT EXISTS \`${name}\` ON \`${table}\` (${columns})`);
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `
+      SELECT COUNT(*) AS c
+      FROM information_schema.statistics
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+        AND index_name = ?
+      `,
+      [table, name],
+    );
+    if (Number(rows?.[0]?.c ?? 0) > 0) return;
+
+    const [tableRows] = await pool.query<RowDataPacket[]>(
+      `
+      SELECT COUNT(*) AS c
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+        AND table_name = ?
+      `,
+      [table],
+    );
+    if (Number(tableRows?.[0]?.c ?? 0) === 0) return;
+
+    await pool.query(`CREATE INDEX \`${name}\` ON \`${table}\` (${columns})`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (/doesn't exist|Unknown table|1146|1054|Unknown column/i.test(msg)) {
+    if (/Duplicate key name|1061|doesn't exist|Unknown table|1146|1054|Unknown column/i.test(msg)) {
       return;
     }
     console.warn(`[rm-indexes] skip ${table}.${name}: ${msg}`);
