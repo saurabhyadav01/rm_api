@@ -6,6 +6,7 @@ import {
   fetchProductImagesMap,
   fetchVariantsByProductId,
   mapVariantToLegacyAttribute,
+  PRODUCT_RM_LIST,
   productImageFromRow,
   productTitleFromRow,
   resolveProductImagesForList,
@@ -167,8 +168,7 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
     SELECT COUNT(*) AS product_count
     FROM products p
     WHERE p.store_id = :store_id
-      AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
-      AND (p.status = 1 OR p.status = '1')
+      AND ${PRODUCT_RM_LIST}
     `,
     { store_id } as any,
   );
@@ -179,8 +179,7 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
     SELECT COUNT(*) AS attribute_total
     FROM product_variants v
     INNER JOIN products p ON p.id = v.product_id AND p.store_id = :store_id
-    WHERE (p.is_deleted = 0 OR p.is_deleted IS NULL)
-      AND (p.status = 1 OR p.status = '1')
+    WHERE ${PRODUCT_RM_LIST}
       AND (v.is_deleted = 0 OR v.is_deleted IS NULL)
       AND v.deleted_at IS NULL
     `,
@@ -193,8 +192,7 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
     SELECT p.*
     FROM products p
     WHERE p.store_id = :store_id
-      AND (p.is_deleted = 0 OR p.is_deleted IS NULL)
-      AND (p.status = 1 OR p.status = '1')
+      AND ${PRODUCT_RM_LIST}
     ORDER BY p.id DESC
     LIMIT :offset, :limit
     `,
@@ -229,6 +227,7 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
       product_images: resolveProductImagesForList(Number(product.id), product, imagesMap),
       description: cleanDescription(product.description),
       status: product.status,
+      approval_status: String(product.approval_status ?? "pending").trim().toLowerCase() || "pending",
       about_product: parseAboutProduct(product.about_product),
       product_information: parseProductInformationFiltered(product.product_information),
       fssai_lic: product.fssai_lic ?? null,
@@ -279,20 +278,19 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
   if (limit < 20) limit = 20;
   const offset = (page - 1) * limit;
 
-  // Product count (active products)
+  // Product count (non-deleted — includes pending / inactive)
   const [pcRows] = await pool.query<CountRow[]>(
     `
     SELECT COUNT(*) AS product_count
     FROM tbl_product
     WHERE store_id = :store_id
       AND (is_delete = 0 OR is_delete IS NULL)
-      AND (status = 1 OR status = '1')
     `,
     { store_id } as any,
   );
   const product_count = Number(pcRows?.[0]?.product_count ?? 0);
 
-  // Attribute total (variants count)
+  // Attribute total (all variants on non-deleted products, including pending)
   const [atRows] = await pool.query<CountRow[]>(
     `
     SELECT COUNT(*) AS attribute_total
@@ -300,7 +298,6 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     INNER JOIN tbl_product p ON p.id = pa.product_id AND p.store_id = pa.store_id
     WHERE pa.store_id = :store_id
       AND (p.is_delete = 0 OR p.is_delete IS NULL)
-      AND (p.status = 1 OR p.status = '1')
     `,
     { store_id } as any,
   );
@@ -313,7 +310,6 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     FROM tbl_product
     WHERE store_id = :store_id
       AND (is_delete = 0 OR is_delete IS NULL)
-      AND (status = 1 OR status = '1')
     ORDER BY id DESC
     LIMIT :offset, :limit
     `,
@@ -371,6 +367,8 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     productData.product_images = product.product_images ? (JSON.parse(String(product.product_images)) ?? []) : [];
     productData.description = cleanDescription(product.description);
     productData.status = product.status;
+    productData.approval_status =
+      String(product.approval_status ?? "pending").trim().toLowerCase() || "pending";
     productData.about_product = parseAboutProduct(product.about_product);
     productData.product_information = parseProductInformationFiltered(product.product_information);
     productData.fssai_lic = product.fssai_lic ?? null;
@@ -416,6 +414,8 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
         is_stock,
         subscription_required: attr.subscription_required,
         attr_image: attr.attr_image ?? "",
+        status: String(attr.status ?? "1"),
+        approval_status: String(attr.approval_status ?? "pending").trim().toLowerCase() || "pending",
       });
     }
 

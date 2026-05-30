@@ -21,6 +21,8 @@ export function resolveProductImagePublicUrl(imageUrl: unknown): string {
 
 export const PRODUCT_NOT_DELETED = `(p.is_deleted = 0 OR p.is_deleted IS NULL)`;
 export const PRODUCT_ACTIVE = `${PRODUCT_NOT_DELETED} AND (p.status = 1 OR p.status = '1')`;
+/** RM catalog: all non-deleted products (includes pending / inactive status). */
+export const PRODUCT_RM_LIST = PRODUCT_NOT_DELETED;
 
 /** DB column for product title (microservices: `name`, legacy: `title`). */
 export const PRODUCT_TITLE_SQL = "COALESCE(p.name, p.title)";
@@ -207,6 +209,7 @@ export async function fetchVariantsByProductId(productId: number): Promise<Varia
       '' AS subscription_required,
       v.variant_image_url AS attr_image,
       v.status,
+      COALESCE(v.approval_status, 'pending') AS approval_status,
       COALESCE(inv.is_out_of_stock, 0) AS out_of_stock,
       COALESCE(pr.mrp, 0) AS normal_price,
       0 AS subscribe_price,
@@ -247,8 +250,9 @@ export function mapVariantToLegacyAttribute(v: VariantRow, opts?: { includeId?: 
     discounted_price: fmt0(discounted),
     Product_Out_Stock: String(outOfStock),
     subscription_required: String(v.subscription_required ?? ""),
-    attr_image: v.attr_image ?? "",
+    attr_image: resolveProductImagePublicUrl(v.attr_image ?? ""),
     status: String(v.status ?? "1"),
+    approval_status: String(v.approval_status ?? "pending").trim().toLowerCase() || "pending",
   };
 
   if (opts?.includeId) {
