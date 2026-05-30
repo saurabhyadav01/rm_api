@@ -63,12 +63,13 @@ async function fetchCategoryTitles(): Promise<string[]> {
 function mapPlans(rows: PlanRow[]) {
   return rows.map((r) => ({
     id: r.id,
-    title: r.plan_title ?? "",
-    description: r.description ?? "",
+    title: r.plan_title,
+    description: r.description,
   }));
 }
 
-async function fetchPlans(): Promise<{ id: number; title: string; description: string }[]> {
+/** Same as legacy PHP: SELECT * FROM tbl_joining_plan WHERE status=1 */
+async function fetchPlans(): Promise<{ id: number; title: string | null; description: string | null }[]> {
   const [rows] = await pool.query<PlanRow[]>(
     `
     SELECT id, plan_title, description
@@ -77,24 +78,7 @@ async function fetchPlans(): Promise<{ id: number; title: string; description: s
     ORDER BY id ASC
     `,
   );
-  const plans = mapPlans(rows ?? []);
-  if (plans.length > 0) return plans;
-
-  if (!useProductSchemaV2()) return plans;
-
-  try {
-    const [v2Rows] = await pool.query<PlanRow[]>(
-      `
-      SELECT id, plan_title, description
-      FROM subscription_store_plan
-      WHERE status = 1
-      ORDER BY id ASC
-      `,
-    );
-    return mapPlans(v2Rows ?? []);
-  } catch {
-    return plans;
-  }
+  return mapPlans(rows ?? []);
 }
 
 async function fetchStoreMasters(): Promise<ReturnType<typeof mapStoreMaster>[]> {
