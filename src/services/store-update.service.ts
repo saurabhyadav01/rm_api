@@ -7,6 +7,8 @@ import {
   normalizeStoreInput,
   s,
 } from "./store-onboarding.shared";
+import { storeUpdateV2Service } from "./store-update-v2.service";
+import { formatStorePhoneIndia, mobileDigitsSql, storePhoneLast10 } from "../utils/phone";
 import { type RowDataPacket } from "mysql2/promise";
 
 type ServiceResult = { httpStatus: number; body: Record<string, unknown> };
@@ -14,14 +16,7 @@ type ExistingRow = RowDataPacket & { id: number };
 
 export async function storeUpdateService(data: Record<string, unknown>): Promise<ServiceResult> {
   if (useStoresTable()) {
-    return {
-      httpStatus: 501,
-      body: {
-        success: false,
-        message:
-          "Store update on production DB uses stores/* tables. Use HelloChotu panel/store service until RM update is migrated.",
-      },
-    };
+    return storeUpdateV2Service(data);
   }
 
   normalizeStoreInput(data);
@@ -33,11 +28,26 @@ export async function storeUpdateService(data: Record<string, unknown>): Promise
     };
   }
 
-  const mobile = s(data.mobile);
+  const mobile = formatStorePhoneIndia(s(data.mobile));
+  if (!mobile) {
+    return {
+      httpStatus: 400,
+      body: { success: false, message: "Invalid mobile number. Must be a valid 10-digit India mobile." },
+    };
+  }
+  data.mobile = mobile;
 
+  const last10 = storePhoneLast10(mobile);
+  const digits = mobileDigitsSql("mobile");
   const [existing] = await pool.query<ExistingRow[]>(
-    "SELECT id FROM service_details WHERE mobile = :mobile LIMIT 1",
-    { mobile } as any,
+    `
+    SELECT id FROM service_details
+    WHERE mobile = :mobile
+      OR mobile LIKE :mobileLike
+      OR ${digits} = :last10
+    LIMIT 1
+    `,
+    { mobile, mobileLike: `%${last10}`, last10 } as any,
   );
   if (!existing?.length) {
     return {

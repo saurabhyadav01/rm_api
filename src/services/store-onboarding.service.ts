@@ -3,7 +3,8 @@ import { useStoresTable } from "../config/schema";
 import { resolveOnboardingPlan } from "./plan.service";
 import { sendOnboardingMessages } from "./sms.service";
 import { storeOnboardingV2Service } from "./store-onboarding-v2.service";
-import { resolveDefaultZoneId } from "./store-onboarding.shared";
+import { resolveDefaultZoneId, parseTimeToHms, parseStoreBreakTimes } from "./store-onboarding.shared";
+import { kolkataDateTimeNow } from "../utils/kolkata-time";
 import { formatStorePhoneIndia, mobileDigitsSql, storePhoneLast10 } from "../utils/phone";
 import { type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
@@ -66,28 +67,6 @@ function normalizeBusinessName(data: Record<string, unknown>) {
     const formatted = formatStorePhoneIndia(s(data.mobile));
     if (formatted) data.mobile = formatted;
   }
-}
-
-/** PHP strtotime + date('H:i:s') */
-function parseTimeToHms(input: unknown, fallback: string): string {
-  const v = s(input);
-  if (!v) return fallback;
-  const ts = Date.parse(`1970-01-01 ${v}`);
-  if (Number.isFinite(ts)) {
-    const d = new Date(ts);
-    const hh = String(d.getUTCHours()).padStart(2, "0");
-    const mm = String(d.getUTCMinutes()).padStart(2, "0");
-    const ss = String(d.getUTCSeconds()).padStart(2, "0");
-    return `${hh}:${mm}:${ss}`;
-  }
-  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(v);
-  if (m) {
-    const hh = m[1].padStart(2, "0");
-    const mm = m[2].padStart(2, "0");
-    const ss = (m[3] ?? "00").padStart(2, "0");
-    return `${hh}:${mm}:${ss}`;
-  }
-  return fallback;
 }
 
 function buildTimeSlots(openTime: string, closeTime: string, breakStart?: string | null, breakEnd?: string | null) {
@@ -309,6 +288,7 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
 
   const business_name = s(data.business_name);
   const email = s(data.email);
+  const { breakStart, breakEnd } = parseStoreBreakTimes(data);
 
   const insertData: Record<string, unknown> = {
     ra_id,
@@ -331,8 +311,8 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
 
     opentime,
     closetime,
-    break_start_time: data.break_start_time ? s(data.break_start_time) : (data.breakstarttime ? s(data.breakstarttime) : null),
-    break_end_time: data.break_end_time ? s(data.break_end_time) : null,
+    break_start_time: breakStart,
+    break_end_time: breakEnd,
 
     landmark: data.location !== undefined ? s(data.location) : "",
     lats: data.latitude !== undefined ? s(data.latitude) : "0",
@@ -378,6 +358,7 @@ export async function storeOnboardingService(data: Record<string, unknown>): Pro
     owner_name: data.owner_name !== undefined ? s(data.owner_name) : "",
     years_in_business: data.years_in_business !== undefined ? toInt(data.years_in_business, 0) : 0,
     onboardby: "By_RM",
+    created_at: kolkataDateTimeNow(),
   };
 
   if (rawNos) insertData.non_onboarded_store_id = rawNos;

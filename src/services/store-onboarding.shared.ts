@@ -1,6 +1,7 @@
 import { pool } from "../db/mysql";
 import { useProductSchemaV2 } from "../config/schema";
 import { formatStorePhoneIndia } from "../utils/phone";
+import { kolkataDateTimeNow } from "../utils/kolkata-time";
 import { type RowDataPacket } from "mysql2/promise";
 
 export function s(v: unknown) {
@@ -55,6 +56,20 @@ export function parseTimeToHms(input: unknown, fallback: string): string {
   const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(v);
   if (m) return `${m[1].padStart(2, "0")}:${m[2].padStart(2, "0")}:${(m[3] ?? "00").padStart(2, "0")}`;
   return fallback;
+}
+
+export function parseStoreBreakTimes(data: Record<string, unknown>): {
+  breakStart: string | null;
+  breakEnd: string | null;
+} {
+  const breakStartRaw = data.break_start_time ?? data.breakstarttime;
+  const breakEndRaw = data.break_end_time;
+  const breakStart = breakStartRaw ? parseTimeToHms(breakStartRaw, "") : null;
+  const breakEnd = breakEndRaw ? parseTimeToHms(breakEndRaw, "") : null;
+  return {
+    breakStart: breakStart && breakStart !== "" ? breakStart : null,
+    breakEnd: breakEnd && breakEnd !== "" ? breakEnd : null,
+  };
 }
 
 type ZoneRow = RowDataPacket & { id: number };
@@ -233,6 +248,7 @@ export function buildServiceDetailsFields(
 ): Record<string, unknown> {
   const business_name = s(data.business_name);
   const business_type = s(data.business_type);
+  const { breakStart, breakEnd } = parseStoreBreakTimes(data);
 
   const base: Record<string, unknown> = {
     ra_id: ctx.ra_id,
@@ -289,16 +305,16 @@ export function buildServiceDetailsFields(
     base.area = data.area !== undefined ? s(data.area) : null;
     base.city = data.city !== undefined ? s(data.city) : null;
     base.state = data.state !== undefined ? s(data.state) : null;
-    base.break_start_time = data.break_start_time
-      ? s(data.break_start_time)
-      : data.breakstarttime
-        ? s(data.breakstarttime)
-        : null;
-    base.break_end_time = data.break_end_time ? s(data.break_end_time) : null;
+    base.break_start_time = breakStart;
+    base.break_end_time = breakEnd;
     base.aadhar_back = s(data.aadhar_back) ? s(data.aadhar_back) : null;
     base.years_in_business = data.years_in_business !== undefined ? toInt(data.years_in_business, 0) : 0;
     base.onboardby = "By_RM";
+    base.created_at = kolkataDateTimeNow();
     if (!s(data.password)) base.password = "";
+  } else {
+    base.break_start_time = breakStart;
+    base.break_end_time = breakEnd;
   }
 
   return base;

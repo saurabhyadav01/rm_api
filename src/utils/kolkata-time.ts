@@ -40,6 +40,11 @@ export function formatKolkataDateTime(d: Date): string {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
 }
 
+/** Current Asia/Kolkata datetime for DB insert/update (`YYYY-MM-DD HH:MM:SS`). */
+export function kolkataDateTimeNow(): string {
+  return formatKolkataDateTime(new Date());
+}
+
 export function formatKolkataTimeHms(d: Date): string {
   const p = kolkataParts(d);
   return `${p.hour}:${p.minute}:${p.second}`;
@@ -54,8 +59,8 @@ function utcClockToIstHms(h: number, min: number, sec: number): string {
 }
 
 /**
- * Store hours on list/search only — DB TIME is stored as UTC clock; display IST (+05:30).
- * Onboarding/insert keeps raw `parseTimeToHms` values (no conversion on write).
+ * Store hours on list — return raw DB values (IST stored on onboard/update).
+ * Kept for other APIs that still convert UTC clock → IST display.
  */
 export function formatMysqlTimeInKolkata(v: unknown): string {
   if (v === null || v === undefined) return "";

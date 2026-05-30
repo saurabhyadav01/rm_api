@@ -3,7 +3,7 @@ import {
   buildStoreImageFiles,
   buildStorePayloadContext,
   normalizeStoreInput,
-  parseTimeToHms,
+  parseStoreBreakTimes,
   s,
   toFloat,
   toInt,
@@ -11,6 +11,7 @@ import {
 import { resolveOnboardingPlan } from "./plan.service";
 import { sendOnboardingMessages } from "./sms.service";
 import { formatStorePhoneIndia, mobileDigitsSql, storePhoneLast10 } from "../utils/phone";
+import { kolkataDateTimeNow } from "../utils/kolkata-time";
 import { type PoolConnection, type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 
 type ServiceResult = {
@@ -171,12 +172,7 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
   const baseDistance = data.base_distance !== undefined ? toFloat(data.base_distance, 5) : 5;
   const baseCharge = data.base_charge !== undefined ? toFloat(data.base_charge, 0) : 0;
   const extraCharge = data.extra_charge !== undefined ? toFloat(data.extra_charge, 0) : 0;
-  const breakStart = data.break_start_time
-    ? parseTimeToHms(data.break_start_time, "")
-    : data.breakstarttime
-      ? parseTimeToHms(data.breakstarttime, "")
-      : null;
-  const breakEnd = data.break_end_time ? parseTimeToHms(data.break_end_time, "") : null;
+  const { breakStart, breakEnd } = parseStoreBreakTimes(data);
 
   const city = data.city !== undefined && s(data.city) !== "" ? s(data.city) : "Unknown";
   const state = data.state !== undefined && s(data.state) !== "" ? s(data.state) : "Unknown";
@@ -196,6 +192,7 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
   try {
     await conn.beginTransaction();
 
+    const nowKolkata = kolkataDateTimeNow();
     const store_code = await generateStoreCode(conn);
 
     const [storeResult] = await conn.query<ResultSetHeader>(
@@ -210,10 +207,11 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
         :store_code, :name, :owner_name, :tagline, :short_description, :description,
         :logo_url, :banner_url, :location_code, :category_ids, :rating, :status, :zone_id,
         :referral_code, :regional_aggregator_id, :franchisee_id, :regional_manager_id,
-        :subscription_plan_id, :years_in_business, :cancellation_policy, 0, 'en', 0, NOW(), NOW()
+        :subscription_plan_id, :years_in_business, :cancellation_policy, 0, 'en', 0, :now_kolkata, :now_kolkata
       )
       `,
       {
+        now_kolkata: nowKolkata,
         store_code,
         name: business_name,
         owner_name: data.owner_name !== undefined ? s(data.owner_name) : "",
@@ -245,10 +243,11 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
       INSERT INTO store_credentials (
         store_id, email, phone_number, password_hash, access_token, is_deleted, created_at, updated_at
       ) VALUES (
-        :store_id, :email, :phone_number, :password_hash, :access_token, 0, NOW(), NOW()
+        :store_id, :email, :phone_number, :password_hash, :access_token, 0, :now_kolkata, :now_kolkata
       )
       `,
       {
+        now_kolkata: nowKolkata,
         store_id: storeId,
         email: email || null,
         phone_number: mobile,
@@ -264,10 +263,11 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
         landmark, latitude, longitude, address_type, is_default, is_deleted, created_at, updated_at
       ) VALUES (
         :store_id, :address_line_1, :street, :area, :city, :state, :postal_code, 'India',
-        :landmark, :latitude, :longitude, 'primary', 1, 0, NOW(), NOW()
+        :landmark, :latitude, :longitude, 'primary', 1, 0, :now_kolkata, :now_kolkata
       )
       `,
       {
+        now_kolkata: nowKolkata,
         store_id: storeId,
         address_line_1: s(data.full_address),
         street: data.street !== undefined ? s(data.street) : null,
@@ -293,10 +293,11 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
           account_number, is_primary, is_deleted, created_at, updated_at
         ) VALUES (
           :store_id, 'bank_account', :bank_name, :ifsc_code, :account_holder_name,
-          :account_number, 1, 0, NOW(), NOW()
+          :account_number, 1, 0, :now_kolkata, :now_kolkata
         )
         `,
         {
+          now_kolkata: nowKolkata,
           store_id: storeId,
           bank_name: bankName || null,
           ifsc_code: ifsc || null,
@@ -313,10 +314,10 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
         INSERT INTO store_payment_methods (
           store_id, payment_method_type, upi_id, is_primary, is_deleted, created_at, updated_at
         ) VALUES (
-          :store_id, 'upi', :upi_id, 0, 0, NOW(), NOW()
+          :store_id, 'upi', :upi_id, 0, 0, :now_kolkata, :now_kolkata
         )
         `,
-        { store_id: storeId, upi_id: upiId } as any,
+        { now_kolkata: nowKolkata, store_id: storeId, upi_id: upiId } as any,
       );
     }
 
@@ -328,10 +329,11 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
           break_start_time, break_end_time, is_24_hours, created_at, updated_at
         ) VALUES (
           :store_id, :day_of_week, 1, :opening_time, :closing_time,
-          :break_start_time, :break_end_time, 0, NOW(), NOW()
+          :break_start_time, :break_end_time, 0, :now_kolkata, :now_kolkata
         )
         `,
         {
+          now_kolkata: nowKolkata,
           store_id: storeId,
           day_of_week: day,
           opening_time: ctx.opentime,
@@ -350,10 +352,11 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
         cancellation_policy, is_deleted, created_at, updated_at
       ) VALUES (
         :store_id, 0, 0, 0, :platform_commission_rate, 'per_km', :price_per_km,
-        :base_price, :additional_price, :cancellation_policy, 0, NOW(), NOW()
+        :base_price, :additional_price, :cancellation_policy, 0, :now_kolkata, :now_kolkata
       )
       `,
       {
+        now_kolkata: nowKolkata,
         store_id: storeId,
         platform_commission_rate: ctx.commission,
         price_per_km: baseDistance,
@@ -368,10 +371,10 @@ export async function storeOnboardingV2Service(data: Record<string, unknown>): P
       INSERT INTO store_delivery_settings (
         store_id, is_delivery_enabled, is_pickup_enabled, delivery_radius_km, is_deleted, created_at, updated_at
       ) VALUES (
-        :store_id, 1, 1, :delivery_radius_km, 0, NOW(), NOW()
+        :store_id, 1, 1, :delivery_radius_km, 0, :now_kolkata, :now_kolkata
       )
       `,
-      { store_id: storeId, delivery_radius_km: baseDistance } as any,
+      { now_kolkata: nowKolkata, store_id: storeId, delivery_radius_km: baseDistance } as any,
     );
 
     await softDeleteNonOnboardedStore(conn, rawNos, rm_id, nosWhereOr, nosLookupParams);
