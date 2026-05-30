@@ -85,20 +85,22 @@ async function insertAttributeListed(
   product_id: number,
   storeIdNum: number,
   productImagePath: string,
+  variantApprovalStatus: "approved" | "pending" = "approved",
 ): Promise<number> {
   const pricing = parseAttributePricing(attr);
   const attr_image = await resolveAttrImage(attr, productImagePath);
 
   const [vResult] = await pool.query<ResultSetHeader>(
     `
-    INSERT INTO product_variants (product_id, variant_name, variant_image_url, status, is_deleted)
-    VALUES (:product_id, :title, :attr_image, :status, 0)
+    INSERT INTO product_variants (product_id, variant_name, variant_image_url, status, is_deleted, approval_status)
+    VALUES (:product_id, :title, :attr_image, :status, 0, :approval_status)
     `,
     {
       product_id,
       title: pricing.mtype,
       attr_image,
       status: Number(pricing.status) || 1,
+      approval_status: variantApprovalStatus,
     } as any,
   );
   const variantId = Number(vResult.insertId);
@@ -132,6 +134,13 @@ async function resolveMainImage(imgInput: string) {
     return { relPath: saved.relPath, absPath: saved.absPath } as const;
   }
   return { relPath: imgInput, absPath: resolveStoredImageAbsPath(imgInput) } as const;
+}
+
+function isLooseProductInput(data: Record<string, unknown>): boolean {
+  const raw = data.loose_product ?? data.looseProduct ?? data.is_loose_product;
+  if (raw === 1 || raw === "1" || raw === true) return true;
+  const sVal = String(raw ?? "").trim().toLowerCase();
+  return sVal === "true" || sVal === "yes";
 }
 
 export async function productsAddWithAttributesService(data: any): Promise<Record<string, unknown>> {
@@ -217,6 +226,9 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
 
   const fields = buildListedProductFields(data, mainResolved.relPath, productImages);
   const store_id = s(data.store_id);
+  const isLoose = isLooseProductInput(data);
+  const productApprovalStatus = isLoose ? "pending" : "approved";
+  const variantApprovalStatus = isLoose ? "pending" : "approved";
 
   let product_id = 0;
   try {
@@ -227,8 +239,8 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
         img: fields.img,
         description: fields.description,
         status: Number(fields.status) || 1,
-        is_loose_product: 0,
-        approval_status: "approved",
+        is_loose_product: isLoose ? 1 : 0,
+        approval_status: productApprovalStatus,
       },
       toProductV2Extras(fields, productImages),
     );
@@ -262,7 +274,13 @@ export async function productsAddWithAttributesService(data: any): Promise<Recor
   for (let index = 0; index < attributesInput.length; index++) {
     const attr = attributesInput[index];
     try {
-      const attribute_id = await insertAttributeListed(attr, product_id, storeIdNum, mainResolved.relPath);
+      const attribute_id = await insertAttributeListed(
+        attr,
+        product_id,
+        storeIdNum,
+        mainResolved.relPath,
+        variantApprovalStatus,
+      );
 
       attribute_ids.push(attribute_id);
       attribute_results.push({
