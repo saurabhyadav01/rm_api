@@ -620,7 +620,7 @@ async function storesListFromStoresTable(input: StoresListInput): Promise<Servic
       ${STORE_OPERATING_HOURS_JOIN}
       LEFT JOIN store_payment_methods spm ON spm.store_id = s.id AND spm.is_primary = 1
         AND (spm.is_deleted = 0 OR spm.is_deleted IS NULL)
-      LEFT JOIN subscription_store_plan p ON s.subscription_plan_id = p.id
+      LEFT JOIN tbl_joining_plan p ON s.subscription_plan_id = p.id
       LEFT JOIN store_pricing_settings sps ON sps.store_id = s.id
         AND (sps.is_deleted = 0 OR sps.is_deleted IS NULL)
       LEFT JOIN store_delivery_settings sds ON sds.store_id = s.id

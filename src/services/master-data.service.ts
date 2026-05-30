@@ -60,23 +60,15 @@ async function fetchCategoryTitles(): Promise<string[]> {
   return (rows ?? []).map((r) => r.title ?? "").filter(Boolean);
 }
 
-async function fetchPlans(): Promise<{ id: number; title: string; description: string }[]> {
-  if (useProductSchemaV2()) {
-    const [rows] = await pool.query<PlanRow[]>(
-      `
-      SELECT id, plan_title, description
-      FROM subscription_store_plan
-      WHERE status = 1
-      ORDER BY id ASC
-      `,
-    );
-    return (rows ?? []).map((r) => ({
-      id: r.id,
-      title: r.plan_title ?? "",
-      description: r.description ?? "",
-    }));
-  }
+function mapPlans(rows: PlanRow[]) {
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.plan_title ?? "",
+    description: r.description ?? "",
+  }));
+}
 
+async function fetchPlans(): Promise<{ id: number; title: string; description: string }[]> {
   const [rows] = await pool.query<PlanRow[]>(
     `
     SELECT id, plan_title, description
@@ -85,11 +77,24 @@ async function fetchPlans(): Promise<{ id: number; title: string; description: s
     ORDER BY id ASC
     `,
   );
-  return (rows ?? []).map((r) => ({
-    id: r.id,
-    title: r.plan_title ?? "",
-    description: r.description ?? "",
-  }));
+  const plans = mapPlans(rows ?? []);
+  if (plans.length > 0) return plans;
+
+  if (!useProductSchemaV2()) return plans;
+
+  try {
+    const [v2Rows] = await pool.query<PlanRow[]>(
+      `
+      SELECT id, plan_title, description
+      FROM subscription_store_plan
+      WHERE status = 1
+      ORDER BY id ASC
+      `,
+    );
+    return mapPlans(v2Rows ?? []);
+  } catch {
+    return plans;
+  }
 }
 
 async function fetchStoreMasters(): Promise<ReturnType<typeof mapStoreMaster>[]> {
