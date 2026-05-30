@@ -144,7 +144,7 @@ function fmt0(n: number) {
   return n.toFixed(0);
 }
 
-/** v2 list row — metadata joined once; avoids SELECT * and a separate metadata query. */
+/** v2 list row — one metadata row per product (avoids duplicate products when metadata has multiple rows). */
 const PRODUCT_V2_LIST_SELECT = `
   SELECT
     p.id,
@@ -159,7 +159,13 @@ const PRODUCT_V2_LIST_SELECT = `
     pm.product_information,
     pm.fssai_license_number AS fssai_lic
   FROM products p
-  LEFT JOIN product_metadata pm ON pm.product_id = p.id
+  LEFT JOIN product_metadata pm ON pm.id = (
+    SELECT pm2.id
+    FROM product_metadata pm2
+    WHERE pm2.product_id = p.id
+    ORDER BY pm2.id DESC
+    LIMIT 1
+  )
 `;
 
 /** Legacy list — excludes unused blob column \`product_detail\`. */
@@ -237,13 +243,20 @@ async function productsListWithAttributesV2(data: any): Promise<Record<string, u
   ]);
 
   const productList: any[] = [];
+  const seenProductIds = new Set<number>();
+
   for (const product of products ?? []) {
-    const variants = variantsMap.get(Number(product.id)) ?? [];
+    const productId = Number(product.id);
+    if (!Number.isFinite(productId) || productId <= 0) continue;
+    if (seenProductIds.has(productId)) continue;
+    seenProductIds.add(productId);
+
+    const variants = variantsMap.get(productId) ?? [];
     const attributes = variants
       .sort((a, b) => Number(b.id) - Number(a.id))
       .map((v) => mapVariantToLegacyAttribute(v, { includeId: true }));
 
-    const cat = categoryMap.get(Number(product.id));
+    const cat = categoryMap.get(productId);
 
     productList.push({
       id: product.id,
@@ -345,7 +358,6 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
 
   const product_count = Number(pcRows?.[0]?.product_count ?? 0);
   const attribute_total = Number(atRows?.[0]?.attribute_total ?? 0);
-  const total = attribute_total;
 
   const legacyProductIds = (products ?? []).map((p) => Number(p.id)).filter((id) => id > 0);
   const legacyCatIds = (products ?? [])
@@ -453,7 +465,7 @@ export async function productsListWithAttributesService(data: any): Promise<Reco
     productdata: productList,
     page,
     limit,
-    total,
+    total: attribute_total,
     product_count,
     attribute_total,
     total_pages: limit > 0 ? Math.ceil(product_count / limit) : 0,
